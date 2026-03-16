@@ -14,13 +14,12 @@ def now_kst():
 # ==========================================
 # 1. UI/UX 기본 세팅 & 이름 커스텀 기능
 # ==========================================
-# 🛠️ 사용자가 설정한 이름을 저장할 파일을 만듭니다.
 NAME_FILE = "pet_name.txt"
 def get_pet_name():
     if os.path.exists(NAME_FILE):
         with open(NAME_FILE, "r", encoding="utf-8") as f:
             return f.read().strip()
-    return "말티푸" # 기본값
+    return "말티푸" 
 
 def set_pet_name(new_name):
     with open(NAME_FILE, "w", encoding="utf-8") as f:
@@ -28,16 +27,14 @@ def set_pet_name(new_name):
 
 pet_name = get_pet_name()
 
-# 앱 전체 페이지 타이틀에도 설정한 이름이 반영됩니다.
 st.set_page_config(page_title=f"{pet_name} 스마트 관제 센터", layout="centered", page_icon="🐾")
 
 st.sidebar.header("⚙️ 관제 센터 설정")
 
-# 🛠️ 사이드바에 이름 변경 입력창 추가
 new_name_input = st.sidebar.text_input("🐶 반려동물 이름 설정", value=pet_name, max_chars=10)
 if new_name_input != pet_name:
     set_pet_name(new_name_input)
-    st.rerun() # 이름이 바뀌면 즉시 화면을 새로고침하여 적용합니다.
+    st.rerun() 
 
 ui_scale = st.sidebar.slider("🔍 화면 크기 조절 (%)", 50, 150, 100) / 100.0
 
@@ -73,7 +70,10 @@ DATA_FILE = "dog_logs.csv"
 
 def load_data():
     if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE)
+        try:
+            return pd.read_csv(DATA_FILE)
+        except Exception:
+            pass
     return pd.DataFrame(columns=["시간", "활동"])
 
 def save_data(df):
@@ -90,7 +90,6 @@ if not df.empty:
 else:
     target_df = pd.DataFrame(columns=["시간", "활동"])
 
-# 🛠️ 메인 타이틀에 사용자가 설정한 이름이 출력됩니다.
 st.markdown(f"### 📊 {pet_name} 스마트 관제 센터")
 
 def add_record(act, custom_time=None):
@@ -297,51 +296,59 @@ st.write("")
 st.markdown('</div>', unsafe_allow_html=True) 
 
 # ==========================================
-# 🛑 플로팅 앱 닫기 버튼 (3단계 강제 종료 엔진)
+# 🛑 [핵심 엔진] 모바일 완벽 호환 - 순수 CSS 암전 무력화 기술
 # ==========================================
-floating_close_btn = """
-<script>
-    const parentDoc = window.parent.document;
-    
-    parentDoc.body.classList.add('notranslate');
-    parentDoc.body.setAttribute('translate', 'no');
-    
-    if (!parentDoc.getElementById('floating_close_btn')) {
-        const btn = parentDoc.createElement('div');
-        btn.id = 'floating_close_btn';
-        btn.innerHTML = '✖';
-        btn.style.position = 'fixed';
-        btn.style.bottom = '40px';
-        btn.style.right = '20px';
-        btn.style.width = '55px';
-        btn.style.height = '55px';
-        btn.style.backgroundColor = '#E53935'; 
-        btn.style.color = 'white';
-        btn.style.display = 'flex';
-        btn.style.alignItems = 'center';
-        btn.style.justifyContent = 'center';
-        btn.style.fontSize = '28px';
-        btn.style.fontWeight = 'bold';
-        btn.style.boxShadow = '2px 4px 8px rgba(0,0,0,0.3)';
-        btn.style.borderRadius = '10px'; 
-        btn.style.cursor = 'pointer';
-        btn.style.zIndex = '999999'; 
-        
-        btn.onclick = function() {
-            window.parent.close();
-            
-            var userAgent = navigator.userAgent || navigator.vendor || window.opera;
-            if (/android/i.test(userAgent)) {
-                window.parent.location.href = 'intent://#Intent;action=android.intent.action.MAIN;category=android.intent.category.HOME;end';
-            }
-            
-            setTimeout(function() {
-                parentDoc.body.innerHTML = '<div style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100vh; background-color:#222; color:white; font-family:sans-serif; text-align:center;"><h2>🔒 안전하게 종료되었습니다</h2><p style="margin-top:10px; color:#aaa;">오작동을 방지하기 위해 화면이 차단되었습니다.<br>이제 브라우저를 닫으셔도 됩니다.</p></div>';
-            }, 150);
-        };
-        
-        parentDoc.body.appendChild(btn);
+# 스마트폰 브라우저 보안 규정(CORS)을 회피하여 완벽하게 화면을 잠그는 HTML/CSS 기술입니다.
+safe_close_html = """
+<style>
+    /* 우측 하단 둥둥 떠다니는 닫기 버튼 */
+    .floating-close-btn {
+        position: fixed;
+        bottom: 40px;
+        right: 20px;
+        width: 55px;
+        height: 55px;
+        background-color: #E53935;
+        color: white !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        font-weight: bold;
+        box-shadow: 2px 4px 8px rgba(0,0,0,0.3);
+        border-radius: 10px;
+        z-index: 999998;
+        text-decoration: none !important;
     }
-</script>
+    
+    /* ✖ 버튼을 누르면 화면 전체를 덮어버리는 강력한 까만 화면 */
+    #safe-close-screen {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; width: 100vw; height: 100vh;
+        background-color: #111;
+        color: white;
+        z-index: 9999999;
+        text-align: center;
+    }
+    
+    /* 사용자가 링크를 눌렀을 때(Target), 이 까만 화면이 눈앞에 나타납니다. */
+    #safe-close-screen:target {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+</style>
+
+<a href="#safe-close-screen" class="floating-close-btn" title="앱 화면 차단">✖</a>
+
+<div id="safe-close-screen">
+    <h2 style="color:white; margin-bottom: 20px; font-size: 24px;">🔒 앱이 잠겼습니다</h2>
+    <p style="color:#aaa; font-size: 16px; line-height: 1.6;">
+        주머니 속 오작동을 방지하기 위해<br>모든 버튼 터치가 완벽하게 차단되었습니다.<br><br>
+        <strong>스마트폰의 [홈 버튼]을 누르거나<br>화면을 쓸어올려 앱을 완전히 종료해 주세요.</strong>
+    </p>
+</div>
 """
-components.html(floating_close_btn, height=0, width=0)
+st.markdown(safe_close_html, unsafe_allow_html=True)
