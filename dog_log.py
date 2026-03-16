@@ -12,11 +12,33 @@ def now_kst():
     return datetime.now(KST)
 
 # ==========================================
-# 1. UI/UX 기본 세팅 및 번역기 방지 설정
+# 1. UI/UX 기본 세팅 & 이름 커스텀 기능
 # ==========================================
-st.set_page_config(page_title="말티푸 스마트 관제 센터", layout="centered", page_icon="🐾")
+# 🛠️ 사용자가 설정한 이름을 저장할 파일을 만듭니다.
+NAME_FILE = "pet_name.txt"
+def get_pet_name():
+    if os.path.exists(NAME_FILE):
+        with open(NAME_FILE, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    return "말티푸" # 기본값
+
+def set_pet_name(new_name):
+    with open(NAME_FILE, "w", encoding="utf-8") as f:
+        f.write(new_name)
+
+pet_name = get_pet_name()
+
+# 앱 전체 페이지 타이틀에도 설정한 이름이 반영됩니다.
+st.set_page_config(page_title=f"{pet_name} 스마트 관제 센터", layout="centered", page_icon="🐾")
 
 st.sidebar.header("⚙️ 관제 센터 설정")
+
+# 🛠️ 사이드바에 이름 변경 입력창 추가
+new_name_input = st.sidebar.text_input("🐶 반려동물 이름 설정", value=pet_name, max_chars=10)
+if new_name_input != pet_name:
+    set_pet_name(new_name_input)
+    st.rerun() # 이름이 바뀌면 즉시 화면을 새로고침하여 적용합니다.
+
 ui_scale = st.sidebar.slider("🔍 화면 크기 조절 (%)", 50, 150, 100) / 100.0
 
 custom_css = f"""
@@ -50,12 +72,8 @@ st.markdown('<div class="notranslate" translate="no">', unsafe_allow_html=True)
 DATA_FILE = "dog_logs.csv"
 
 def load_data():
-    # 🛠️ 데이터베이스 파일이 손상되었을 때 앱이 뻗는 것을 막는 강력한 방어막
     if os.path.exists(DATA_FILE):
-        try:
-            return pd.read_csv(DATA_FILE)
-        except Exception:
-            pass # 파일이 깨졌어도 에러를 내지 않고 빈 장부를 폅니다.
+        return pd.read_csv(DATA_FILE)
     return pd.DataFrame(columns=["시간", "활동"])
 
 def save_data(df):
@@ -72,7 +90,8 @@ if not df.empty:
 else:
     target_df = pd.DataFrame(columns=["시간", "활동"])
 
-st.markdown("### 📊 말티푸 스마트 관제 센터")
+# 🛠️ 메인 타이틀에 사용자가 설정한 이름이 출력됩니다.
+st.markdown(f"### 📊 {pet_name} 스마트 관제 센터")
 
 def add_record(act, custom_time=None):
     global df
