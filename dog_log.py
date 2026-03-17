@@ -1,5 +1,5 @@
 import streamlit as st
-import streamlit.components.v1 as components
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 import os
@@ -11,97 +11,79 @@ KST = timezone(timedelta(hours=9))
 def now_kst():
     return datetime.now(KST)
 
+st.set_page_config(page_title="스마트 관제 센터", layout="centered", page_icon="🐾")
+
 # ==========================================
-# 1. UI/UX 기본 세팅 & 이름 커스텀 기능
+# 1. 사이드바: 로그인(ID) 및 설정
 # ==========================================
-NAME_FILE = "pet_name.txt"
-def get_pet_name():
-    if os.path.exists(NAME_FILE):
-        with open(NAME_FILE, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    return "말티푸" 
+st.sidebar.header("🔐 로그인 및 설정")
+st.sidebar.info("ID를 다르게 입력하면 각자의 데이터가 분리되어 저장됩니다.")
 
-def set_pet_name(new_name):
-    with open(NAME_FILE, "w", encoding="utf-8") as f:
-        f.write(new_name)
-
-pet_name = get_pet_name()
-
-st.set_page_config(page_title=f"{pet_name} 스마트 관제 센터", layout="centered", page_icon="🐾")
-
-st.sidebar.header("⚙️ 관제 센터 설정")
-
-new_name_input = st.sidebar.text_input("🐶 반려동물 이름 설정", value=pet_name, max_chars=10)
-if new_name_input != pet_name:
-    set_pet_name(new_name_input)
-    st.rerun() 
-
+user_id = st.sidebar.text_input("👤 사용자 ID (영어/숫자 권장)", value="DefaultUser")
+pet_name = st.sidebar.text_input("🐶 반려동물 이름", value="말티푸")
 ui_scale = st.sidebar.slider("🔍 화면 크기 조절 (%)", 50, 150, 100) / 100.0
 
 custom_css = f"""
 <meta name="google" content="notranslate">
 <style>
-    body {{
-        class: notranslate;
-    }}
+    body {{ class: notranslate; }}
     @media (max-width: 768px) {{
-        div[data-testid="stHorizontalBlock"] {{
-            flex-direction: row !important;
-            flex-wrap: wrap !important;
-        }}
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
-            flex: 1 1 45% !important;
-            min-width: 45% !important;
-        }}
+        div[data-testid="stHorizontalBlock"] {{ flex-direction: row !important; flex-wrap: wrap !important; }}
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{ flex: 1 1 45% !important; min-width: 45% !important; }}
     }}
     div.stButton > button {{
-        font-size: {1.1 * ui_scale}rem !important;
-        height: {3.5 * ui_scale}rem !important;
-        border-radius: {10 * ui_scale}px !important;
-        font-weight: bold !important;
-        width: 100% !important;
+        font-size: {1.1 * ui_scale}rem !important; height: {3.5 * ui_scale}rem !important;
+        border-radius: {10 * ui_scale}px !important; font-weight: bold !important; width: 100% !important;
     }}
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 st.markdown('<div class="notranslate" translate="no">', unsafe_allow_html=True)
 
-DATA_FILE = "dog_logs.csv"
+# ==========================================
+# 2. 구글 시트 데이터베이스 연동 엔진
+# ==========================================
+# Secrets에 등록한 열쇠를 이용해 구글 시트와 연결합니다.
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            return pd.read_csv(DATA_FILE)
-        except Exception:
-            pass
-    return pd.DataFrame(columns=["시간", "활동"])
+@st.cache_data(ttl=2) # 2초마다 최신 데이터를 가져옵니다.
+def load_data(uid):
+    try:
+        df = conn.read(worksheet=uid)
+        if df.empty or "시간" not in df.columns:
+            return pd.DataFrame(columns=["시간", "활동"])
+        return df.dropna(subset=["시간", "활동"])
+    except Exception:
+        # 시트 탭이 없으면 빈 데이터프레임을 반환합니다.
+        return pd.DataFrame(columns=["시간", "활동"])
 
-def save_data(df):
-    df.to_csv(DATA_FILE, index=False)
+def save_data(df, uid):
+    conn.update(worksheet=uid, data=df)
+    st.cache_data.clear() # 저장 후 새로고침을 위해 캐시를 비웁니다.
 
-df = load_data()
+df = load_data(user_id)
 
 selected_date = st.date_input("📅 날짜 선택 (과거 로그 조회)", now_kst().date())
 target_date_str = selected_date.strftime("%Y-%m-%d")
 
 if not df.empty:
-    df['날짜'] = df['시간'].apply(lambda x: x[:10])
+    df['날짜'] = df['시간'].apply(lambda x: str(x)[:10])
     target_df = df[df['날짜'] == target_date_str]
 else:
     target_df = pd.DataFrame(columns=["시간", "활동"])
 
-st.markdown(f"### 📊 {pet_name} 스마트 관제 센터")
+st.markdown(f"### 📊 {pet_name} 스마트 관제 센터 (ID: {user_id})")
 
 def add_record(act, custom_time=None):
     global df
     t = custom_time if custom_time else now_kst().strftime("%Y-%m-%d %H:%M:%S")
     new_row = {"시간": t, "활동": act}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    save_data(df)
+    save_data(df, user_id) # ★ 구글 시트에 즉시 저장!
     st.rerun()
 
 # ==========================================
-# 2. 실시간 배변 모니터링 
+# 3. 실시간 배변 모니터링 (타이머)
 # ==========================================
 st.subheader("💡 실시간 배변 모니터링")
 timer_scale = st.slider("↕️ 타이머 크기 조절", 50, 150, 100, label_visibility="collapsed") / 100.0
@@ -116,7 +98,7 @@ def get_timer_state(activity_name):
         last_record = records.iloc[-1]
         if "타이머 끄기" in last_record['활동'] or "리셋" in last_record['활동']:
             return None
-        return last_record['시간']
+        return str(last_record['시간'])
     return None
 
 last_pee_iso = get_timer_state("소변").replace(" ", "T") + "+09:00" if get_timer_state("소변") else ""
@@ -167,188 +149,89 @@ components.html(timer_html, height=int(190 * timer_scale))
 
 col_t1, col_t2 = st.columns(2)
 with col_t1:
-    if st.button("💧 소변 타이머 끄기", use_container_width=True, key="off_pee"): 
-        add_record("💦 소변 타이머 끄기 (통계제외)")
+    if st.button("💧 소변 타이머 끄기", use_container_width=True): add_record("💦 소변 타이머 끄기 (통계제외)")
 with col_t2:
-    if st.button("💩 대변 타이머 끄기", use_container_width=True, key="off_poop"): 
-        add_record("💩 대변 타이머 끄기 (통계제외)")
+    if st.button("💩 대변 타이머 끄기", use_container_width=True): add_record("💩 대변 타이머 끄기 (통계제외)")
 
-with st.expander("⚙️ 전광판 시간 강제 수정 및 수동 입력 (상세 설정)"):
-    manual_time = st.time_input("실제 배변 시간", now_kst().time(), key="time_manual")
-    col_a, col_b = st.columns(2)
-    full_manual_time = f"{target_date_str} {manual_time.strftime('%H:%M:%S')}"
-    if col_a.button("💧 소변 시간 이걸로 변경", use_container_width=True, key="btn_manual_pee"): 
-        add_record("💦 수동 소변 (통계제외)", full_manual_time)
-    if col_b.button("💩 대변 시간 이걸로 변경", use_container_width=True, key="btn_manual_poop"): 
-        add_record("💩 수동 대변 (통계제외)", full_manual_time)
-
+# ==========================================
+# 4. 퀵 컨트롤 패널 
+# ==========================================
 st.divider()
-
-# ==========================================
-# 3. 퀵 컨트롤 패널 
-# ==========================================
 st.header("🔘 퀵 컨트롤 패널")
 
 col_in1, col_in2 = st.columns(2)
 with col_in1: 
-    if st.button("💦 집에서 소변", use_container_width=True, key="btn_in_pee"): 
-        add_record("💦 집에서 소변")
+    if st.button("💦 집에서 소변", use_container_width=True): add_record("💦 집에서 소변")
 with col_in2: 
-    if st.button("💩 집에서 대변", use_container_width=True, key="btn_in_poop"): 
-        add_record("💩 집에서 대변")
+    if st.button("💩 집에서 대변", use_container_width=True): add_record("💩 집에서 대변")
 
 st.write("🌳 **야외 산책**")
 row1_col1, row1_col2 = st.columns(2)
 with row1_col1: 
-    if st.button("🦮 일반 산책", use_container_width=True, key="btn_out_walk"): 
-        add_record("🦮 일반 산책")
+    if st.button("🦮 일반 산책", use_container_width=True): add_record("🦮 일반 산책")
 with row1_col2: 
-    if st.button("🦮+💦 산책 중 소변", use_container_width=True, key="btn_out_pee"): 
-        add_record("🦮+💦 산책 중 소변")
+    if st.button("🦮+💦 산책 중 소변", use_container_width=True): add_record("🦮+💦 산책 중 소변")
 
 row2_col1, row2_col2 = st.columns(2)
 with row2_col1: 
-    if st.button("🦮+💩 산책 중 대변", use_container_width=True, key="btn_out_poop"): 
-        add_record("🦮+💩 산책 중 대변")
+    if st.button("🦮+💩 산책 중 대변", use_container_width=True): add_record("🦮+💩 산책 중 대변")
 with row2_col2: 
-    if st.button("🦮+💦+💩 소변과 대변", use_container_width=True, key="btn_out_both"): 
-        add_record("🦮+💦+💩 산책 중 소변과 대변")
+    if st.button("🦮+💦+💩 소변과 대변", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
 
+# ==========================================
+# 5. 기록 취소 및 삭제 
+# ==========================================
 st.divider()
-
-# ==========================================
-# 4. 기록 취소 및 삭제 
-# ==========================================
 st.header("🕒 기록 취소 및 삭제")
 
 if not target_df.empty:
     last_target_idx = target_df.index[-1]
-    st.success(f"✔️ 직전 기록: {target_df.loc[last_target_idx, '시간'][11:16]} | {target_df.loc[last_target_idx, '활동']}")
+    st.success(f"✔️ 직전 기록: {str(target_df.loc[last_target_idx, '시간'])[11:16]} | {target_df.loc[last_target_idx, '활동']}")
     
-    if st.button("❌ 방금 누른 기록 지우기 (원상복구)", use_container_width=True, key="btn_undo_quick"):
+    if st.button("❌ 방금 누른 기록 지우기", use_container_width=True):
         df = df.drop(last_target_idx)
-        save_data(df)
+        save_data(df, user_id)
         st.rerun()
 else:
     st.info("해당 날짜에 남긴 기록이 없습니다.")
 
-with st.expander("⚙️ 예전 기록 지우기 (상세 설정)"):
-    if not target_df.empty:
-        options = [f"[{idx}] {row['시간'][11:16]} | {row['활동']}" for idx, row in target_df.iterrows()]
-        options.reverse()
-        selected_log = st.selectbox("지울 기록 선택:", options, key="select_del")
-        if st.button("🗑️ 선택한 기록 완전히 지우기", key="btn_del_past"):
-            real_idx = int(selected_log.split(']')[0].replace('[', ''))
-            df = df.drop(real_idx)
-            save_data(df)
-            st.rerun()
-
+# ==========================================
+# 6. 누적 데이터
+# ==========================================
 st.divider()
-
-# ==========================================
-# 5. 누적 데이터
-# ==========================================
 st.header(f"📊 {target_date_str} 누적 데이터")
 
-metrics_html = f"""
-<div style="display: flex; flex-wrap: wrap; gap: {8 * ui_scale}px; justify-content: center; text-align: center; font-family: sans-serif; margin-bottom: 20px;">
-"""
+metrics_html = f"""<div style="display: flex; flex-wrap: wrap; gap: {8 * ui_scale}px; justify-content: center; text-align: center; margin-bottom: 20px;">"""
 colors = [("소변", "#E3F2FD", "#1565C0"), ("대변", "#FFF3E0", "#E65100"), ("산책", "#E8F5E9", "#2E7D32")]
 
 for label, bg, text_c in colors:
     base_logs = target_df[target_df['활동'].str.contains(label, na=False)]
-    
-    plus_count = len(base_logs[
-        (~base_logs['활동'].str.contains('타이머 끄기|리셋', na=False)) & 
-        (~base_logs['활동'].str.contains('통계제외', na=False)) &
-        (~base_logs['활동'].str.contains('차감', na=False))
-    ])
-
+    plus_count = len(base_logs[(~base_logs['활동'].str.contains('타이머 끄기|리셋', na=False)) & (~base_logs['활동'].str.contains('통계제외', na=False)) & (~base_logs['활동'].str.contains('차감', na=False))])
     minus_count = len(base_logs[base_logs['활동'].str.contains('차감', na=False)])
-    
-    final_count = plus_count - minus_count
-    if final_count < 0: final_count = 0 
+    final_count = max(0, plus_count - minus_count)
     
     metrics_html += f"""
-<div style="flex: 1 1 calc(30% - 10px); min-width: {80 * ui_scale}px; background-color: {bg}; padding: {15 * ui_scale}px 5px; border-radius: {12 * ui_scale}px; box-shadow: 0px 2px 4px rgba(0,0,0,0.08); border: 1px solid {text_c}33;">
-<div style="font-size: {1.0 * ui_scale}rem; font-weight: bold; color: {text_c}; margin-bottom: 5px;">{label}</div>
-<div style="font-size: {1.8 * ui_scale}rem; font-weight: 900; color: {text_c};">{final_count}</div>
-</div>
-"""
+    <div style="flex: 1 1 calc(30% - 10px); min-width: {80 * ui_scale}px; background-color: {bg}; padding: {15 * ui_scale}px 5px; border-radius: {12 * ui_scale}px; box-shadow: 0px 2px 4px rgba(0,0,0,0.08); border: 1px solid {text_c}33;">
+    <div style="font-size: {1.0 * ui_scale}rem; font-weight: bold; color: {text_c}; margin-bottom: 5px;">{label}</div>
+    <div style="font-size: {1.8 * ui_scale}rem; font-weight: 900; color: {text_c};">{final_count}</div>
+    </div>
+    """
 metrics_html += "</div>"
 st.markdown(metrics_html, unsafe_allow_html=True)
 
-with st.expander("☝️ 터치하여 누적 횟수 강제 조절 (+ / -)"):
-    col_p1, col_p2, col_p3 = st.columns(3)
-    with col_p1:
-        if st.button("소변 +1", use_container_width=True, key="plus_pee"): add_record("📊 누적용 추가 (소변)")
-        if st.button("소변 -1", use_container_width=True, key="minus_pee"): add_record("📉 누적 차감 (소변)")
-            
-    with col_p2:
-        if st.button("대변 +1", use_container_width=True, key="plus_poop"): add_record("📊 누적용 추가 (대변)")
-        if st.button("대변 -1", use_container_width=True, key="minus_poop"): add_record("📉 누적 차감 (대변)")
-            
-    with col_p3:
-        if st.button("산책 +1", use_container_width=True, key="plus_walk"): add_record("📊 누적용 추가 (산책)")
-        if st.button("산책 -1", use_container_width=True, key="minus_walk"): add_record("📉 누적 차감 (산책)")
-
-st.write("")
-st.markdown('</div>', unsafe_allow_html=True) 
-
 # ==========================================
-# 🛑 [핵심 엔진] 모바일 완벽 호환 - 순수 CSS 암전 무력화 기술
+# 🛑 안전 종료 버튼 (모바일 호환)
 # ==========================================
-# 스마트폰 브라우저 보안 규정(CORS)을 회피하여 완벽하게 화면을 잠그는 HTML/CSS 기술입니다.
 safe_close_html = """
 <style>
-    /* 우측 하단 둥둥 떠다니는 닫기 버튼 */
-    .floating-close-btn {
-        position: fixed;
-        bottom: 40px;
-        right: 20px;
-        width: 55px;
-        height: 55px;
-        background-color: #E53935;
-        color: white !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 28px;
-        font-weight: bold;
-        box-shadow: 2px 4px 8px rgba(0,0,0,0.3);
-        border-radius: 10px;
-        z-index: 999998;
-        text-decoration: none !important;
-    }
-    
-    /* ✖ 버튼을 누르면 화면 전체를 덮어버리는 강력한 까만 화면 */
-    #safe-close-screen {
-        display: none;
-        position: fixed;
-        top: 0; left: 0; width: 100vw; height: 100vh;
-        background-color: #111;
-        color: white;
-        z-index: 9999999;
-        text-align: center;
-    }
-    
-    /* 사용자가 링크를 눌렀을 때(Target), 이 까만 화면이 눈앞에 나타납니다. */
-    #safe-close-screen:target {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-    }
+    .floating-close-btn { position: fixed; bottom: 40px; right: 20px; width: 55px; height: 55px; background-color: #E53935; color: white !important; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: bold; box-shadow: 2px 4px 8px rgba(0,0,0,0.3); border-radius: 10px; z-index: 999998; text-decoration: none !important; }
+    #safe-close-screen { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #111; color: white; z-index: 9999999; text-align: center; }
+    #safe-close-screen:target { display: flex; flex-direction: column; justify-content: center; align-items: center; }
 </style>
-
 <a href="#safe-close-screen" class="floating-close-btn" title="앱 화면 차단">✖</a>
-
 <div id="safe-close-screen">
     <h2 style="color:white; margin-bottom: 20px; font-size: 24px;">🔒 앱이 잠겼습니다</h2>
-    <p style="color:#aaa; font-size: 16px; line-height: 1.6;">
-        주머니 속 오작동을 방지하기 위해<br>모든 버튼 터치가 완벽하게 차단되었습니다.<br><br>
-        <strong>스마트폰의 [홈 버튼]을 누르거나<br>화면을 쓸어올려 앱을 완전히 종료해 주세요.</strong>
-    </p>
+    <p style="color:#aaa; font-size: 16px; line-height: 1.6;">모든 버튼 터치가 차단되었습니다.<br>스마트폰의 [홈 버튼]을 눌러 종료해 주세요.</p>
 </div>
 """
 st.markdown(safe_close_html, unsafe_allow_html=True)
