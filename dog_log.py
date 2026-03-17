@@ -1,8 +1,9 @@
 import streamlit as st
-import streamlit.components.v1 as components  # <--- 바로 이 녀석이 빠져서 에러가 났었습니다!
+import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timezone, timedelta
+import os
 
 # ==========================================
 # 0. 한국 표준시(KST) 세팅
@@ -19,7 +20,6 @@ st.set_page_config(page_title="스마트 관제 센터", layout="centered", page
 st.sidebar.header("🔐 로그인 및 설정")
 st.sidebar.info("ID를 다르게 입력하면 각자의 데이터가 분리되어 저장됩니다.")
 
-# 스크린샷에 있던 7475 아이디를 기본값으로 세팅해 두었습니다!
 user_id = st.sidebar.text_input("👤 사용자 ID (영어/숫자 권장)", value="7475")
 pet_name = st.sidebar.text_input("🐶 반려동물 이름", value="말티푸")
 ui_scale = st.sidebar.slider("🔍 화면 크기 조절 (%)", 50, 150, 100) / 100.0
@@ -44,23 +44,32 @@ st.markdown('<div class="notranslate" translate="no">', unsafe_allow_html=True)
 # ==========================================
 # 2. 구글 시트 데이터베이스 연동 엔진
 # ==========================================
-# Secrets에 등록한 열쇠를 이용해 구글 시트와 연결합니다.
-conn = st.connection("gsheets", type=GSheetsConnection)
+# 에러 처리: Secrets 설정이 없거나 잘못되었을 때를 대비
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception as e:
+    st.error(f"⚠️ 구글 시트 연결 설정에 문제가 있습니다. Secrets 설정을 확인해주세요: {e}")
+    st.stop()
 
+@st.cache_data(ttl=2) 
 def load_data(uid):
     try:
-        # ttl=0 옵션으로 항상 최신 데이터를 구글 시트에서 가져옵니다.
         df = conn.read(worksheet=uid, ttl=0)
         if df.empty or "시간" not in df.columns:
             return pd.DataFrame(columns=["시간", "활동"])
         return df.dropna(subset=["시간", "활동"])
-    except Exception:
-        # 시트 탭이 없으면 빈 데이터프레임을 반환합니다.
+    except Exception as e:
+        # 시트 탭이 없거나 읽기 권한이 없을 때
+        st.warning(f"⚠️ 데이터를 불러오지 못했습니다. '{uid}' 시트가 없거나 권한 문제가 있을 수 있습니다. 새 시트를 생성합니다.")
         return pd.DataFrame(columns=["시간", "활동"])
 
 def save_data(df, uid):
-    # 구글 시트에 업데이트
-    conn.update(worksheet=uid, data=df)
+    try:
+        conn.update(worksheet=uid, data=df)
+        st.cache_data.clear() 
+    except Exception as e:
+        # 쓰기 권한이 없거나 다른 오류가 발생했을 때 앱이 멈추지 않도록 에러 메시지 출력
+        st.error(f"🚨 구글 시트 저장 실패! 권한 설정을 확인하세요: {e}")
 
 df = load_data(user_id)
 
@@ -71,7 +80,7 @@ if not df.empty:
     df['날짜'] = df['시간'].apply(lambda x: str(x)[:10])
     target_df = df[df['날짜'] == target_date_str]
 else:
-    target_df = pd.DataFrame(columns=["시간", "활동"])
+    target_df = pd.DataFrame(columns=["시간", "활동", "날짜"]) # 날짜 컬럼 추가
 
 st.markdown(f"### 📊 {pet_name} 스마트 관제 센터 (ID: {user_id})")
 
@@ -80,7 +89,6 @@ def add_record(act, custom_time=None):
     t = custom_time if custom_time else now_kst().strftime("%Y-%m-%d %H:%M:%S")
     new_row = pd.DataFrame([{"시간": t, "활동": act}])
     df = pd.concat([df, new_row], ignore_index=True)
-    # 버튼을 누르는 순간 구글 시트에 즉시 저장!
     save_data(df, user_id) 
     st.rerun()
 
@@ -91,16 +99,18 @@ st.subheader("💡 실시간 배변 모니터링")
 timer_scale = st.slider("↕️ 타이머 크기 조절", 50, 150, 100, label_visibility="collapsed") / 100.0
 
 def get_timer_state(activity_name):
-    records = target_df[
-        (target_df['활동'].str.contains(activity_name, na=False)) & 
-        (~target_df['활동'].str.contains('누적', na=False)) & 
-        (~target_df['활동'].str.contains('차감', na=False))
-    ]
-    if not records.empty:
-        last_record = records.iloc[-1]
-        if "타이머 끄기" in last_record['활동'] or "리셋" in last_record['활동']:
-            return None
-        return str(last_record['시간'])
+    # target_df가 비어있지 않고, '활동' 컬럼이 존재하는지 확인
+    if not target_df.empty and '활동' in target_df.columns:
+        records = target_df[
+            (target_df['활동'].str.contains(activity_name, na=False)) & 
+            (~target_df['활동'].str.contains('누적', na=False)) & 
+            (~target_df['활동'].str.contains('차감', na=False))
+        ]
+        if not records.empty:
+            last_record = records.iloc[-1]
+            if "타이머 끄기" in last_record['활동'] or "리셋" in last_record['활동']:
+                return None
+            return str(last_record['시간'])
     return None
 
 last_pee_iso = get_timer_state("소변").replace(" ", "T") + "+09:00" if get_timer_state("소변") else ""
@@ -186,7 +196,7 @@ with row2_col2:
 st.divider()
 st.header("🕒 직전 기록 취소")
 
-if not target_df.empty:
+if not target_df.empty and '시간' in target_df.columns and '활동' in target_df.columns:
     last_target_idx = target_df.index[-1]
     st.success(f"✔️ 직전 기록: {str(target_df.loc[last_target_idx, '시간'])[11:16]} | {target_df.loc[last_target_idx, '활동']}")
     
@@ -207,10 +217,13 @@ metrics_html = f"""<div style="display: flex; flex-wrap: wrap; gap: {8 * ui_scal
 colors = [("소변", "#E3F2FD", "#1565C0"), ("대변", "#FFF3E0", "#E65100"), ("산책", "#E8F5E9", "#2E7D32")]
 
 for label, bg, text_c in colors:
-    base_logs = target_df[target_df['활동'].str.contains(label, na=False)]
-    plus_count = len(base_logs[(~base_logs['활동'].str.contains('타이머 끄기|리셋', na=False)) & (~base_logs['활동'].str.contains('통계제외', na=False)) & (~base_logs['활동'].str.contains('차감', na=False))])
-    minus_count = len(base_logs[base_logs['활동'].str.contains('차감', na=False)])
-    final_count = max(0, plus_count - minus_count)
+    if not target_df.empty and '활동' in target_df.columns:
+        base_logs = target_df[target_df['활동'].str.contains(label, na=False)]
+        plus_count = len(base_logs[(~base_logs['활동'].str.contains('타이머 끄기|리셋', na=False)) & (~base_logs['활동'].str.contains('통계제외', na=False)) & (~base_logs['활동'].str.contains('차감', na=False))])
+        minus_count = len(base_logs[base_logs['활동'].str.contains('차감', na=False)])
+        final_count = max(0, plus_count - minus_count)
+    else:
+        final_count = 0
     
     metrics_html += f"""
     <div style="flex: 1 1 calc(30% - 10px); min-width: {80 * ui_scale}px; background-color: {bg}; padding: {15 * ui_scale}px 5px; border-radius: {12 * ui_scale}px; box-shadow: 0px 2px 4px rgba(0,0,0,0.08); border: 1px solid {text_c}33;">
