@@ -1,8 +1,8 @@
 import streamlit as st
+import streamlit.components.v1 as components  # <--- 바로 이 녀석이 빠져서 에러가 났었습니다!
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timezone, timedelta
-import os
 
 # ==========================================
 # 0. 한국 표준시(KST) 세팅
@@ -19,7 +19,8 @@ st.set_page_config(page_title="스마트 관제 센터", layout="centered", page
 st.sidebar.header("🔐 로그인 및 설정")
 st.sidebar.info("ID를 다르게 입력하면 각자의 데이터가 분리되어 저장됩니다.")
 
-user_id = st.sidebar.text_input("👤 사용자 ID (영어/숫자 권장)", value="DefaultUser")
+# 스크린샷에 있던 7475 아이디를 기본값으로 세팅해 두었습니다!
+user_id = st.sidebar.text_input("👤 사용자 ID (영어/숫자 권장)", value="7475")
 pet_name = st.sidebar.text_input("🐶 반려동물 이름", value="말티푸")
 ui_scale = st.sidebar.slider("🔍 화면 크기 조절 (%)", 50, 150, 100) / 100.0
 
@@ -46,10 +47,10 @@ st.markdown('<div class="notranslate" translate="no">', unsafe_allow_html=True)
 # Secrets에 등록한 열쇠를 이용해 구글 시트와 연결합니다.
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=2) # 2초마다 최신 데이터를 가져옵니다.
 def load_data(uid):
     try:
-        df = conn.read(worksheet=uid)
+        # ttl=0 옵션으로 항상 최신 데이터를 구글 시트에서 가져옵니다.
+        df = conn.read(worksheet=uid, ttl=0)
         if df.empty or "시간" not in df.columns:
             return pd.DataFrame(columns=["시간", "활동"])
         return df.dropna(subset=["시간", "활동"])
@@ -58,8 +59,8 @@ def load_data(uid):
         return pd.DataFrame(columns=["시간", "활동"])
 
 def save_data(df, uid):
+    # 구글 시트에 업데이트
     conn.update(worksheet=uid, data=df)
-    st.cache_data.clear() # 저장 후 새로고침을 위해 캐시를 비웁니다.
 
 df = load_data(user_id)
 
@@ -77,9 +78,10 @@ st.markdown(f"### 📊 {pet_name} 스마트 관제 센터 (ID: {user_id})")
 def add_record(act, custom_time=None):
     global df
     t = custom_time if custom_time else now_kst().strftime("%Y-%m-%d %H:%M:%S")
-    new_row = {"시간": t, "활동": act}
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    save_data(df, user_id) # ★ 구글 시트에 즉시 저장!
+    new_row = pd.DataFrame([{"시간": t, "활동": act}])
+    df = pd.concat([df, new_row], ignore_index=True)
+    # 버튼을 누르는 순간 구글 시트에 즉시 저장!
+    save_data(df, user_id) 
     st.rerun()
 
 # ==========================================
@@ -179,10 +181,10 @@ with row2_col2:
     if st.button("🦮+💦+💩 소변과 대변", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
 
 # ==========================================
-# 5. 기록 취소 및 삭제 
+# 5. 기록 취소 및 삭제
 # ==========================================
 st.divider()
-st.header("🕒 기록 취소 및 삭제")
+st.header("🕒 직전 기록 취소")
 
 if not target_df.empty:
     last_target_idx = target_df.index[-1]
