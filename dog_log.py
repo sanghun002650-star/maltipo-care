@@ -1,20 +1,15 @@
 # ==========================================
-# [ 말티푸 스마트 관제 센터 (내부 메모리 버전) ]
+# [ 말티푸 스마트 관제 센터 (구글 시트 클라우드 버전) ]
 # 
 # 📝 수정 이력 (Change Log)
-# - v8.0 (2026-03-18): 구글 시트 연동 전 최종 안정화 버전.
-# - v8.1 (2026-03-18): 화면 상단/하단 및 사이드바에 버전 정보 UI 추가.
-# - v8.2 (2026-03-18): 소변/대변 시간 수동 수정 기능 및 타이머 끄기 버튼 추가.
-# - v8.3 (2026-03-18): 시간 수동 기록 시 누적 횟수 제외 처리, 타이머 끄기 완벽 초기화 구현.
-# - v8.4 (2026-03-18): 앱 안전 종료 버튼 추가.
-# - v8.5 (2026-03-18): 반려동물 이름 영구 유지 방식 변경 (URL 파라미터 활용).
-# - v8.5.1 (2026-03-18): 앱 안전 종료 버튼 색상을 밝은 색으로 변경.
-# - v8.5.2 (2026-03-18): 누적 현황과 기록 관리 패널의 위치(순서) 변경.
-# - v8.5.3 (2026-03-18): 누적 횟수 수동 조정 버튼을 누적 현황 바로 아래로 이동.
+# - v8.5.3 (2026-03-18): UI/UX 최종 완성본 (타이머 수정, 누적 조정 등)
+# - v9.5 (2026-03-18): v8.5.3의 완벽한 UI에 구글 시트 영구 저장 엔진 결합. 
+# - v9.5.1 (2026-03-18): 기록 취소 버튼 파이썬 문법 에러(SyntaxError) 수정.
 # ==========================================
 
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 import urllib.parse
@@ -22,7 +17,7 @@ import urllib.parse
 # ==========================================
 # 0. 앱 기본 설정 및 버전 정보
 # ==========================================
-APP_VERSION = "v8.5.3"
+APP_VERSION = "v9.5.1"
 APP_UPDATE_DATE = "2026-03-18"
 
 KST = timezone(timedelta(hours=9))
@@ -32,30 +27,28 @@ def now_kst():
 st.set_page_config(page_title=f"스마트 관제 센터 {APP_VERSION}", layout="centered", page_icon="🐾")
 
 # ==========================================
-# 1. 사이드바: 설정 및 이름 기억 마법 (URL 쿼리 파라미터)
+# 1. 사이드바: 설정 및 이름/ID 관리
 # ==========================================
 st.sidebar.header("⚙️ 설정")
 st.sidebar.caption(f"🚀 현재 버전: **{APP_VERSION}**") 
 
-# [핵심 로직] URL 주소창에서 'name' 이라는 값을 찾습니다.
+# 사용자 ID (구글 시트 탭 이름으로 사용됨)
+user_id = st.sidebar.text_input("👤 데이터 저장 ID (시트 탭 이름)", value="7475")
+
+# 이름 URL 파라미터 로직
 query_params = st.query_params
 default_name = "말티푸"
-
 if "name" in query_params:
-    # 주소창에 이름이 있으면 가져옵니다. (한글 깨짐 방지 디코딩)
     default_name = urllib.parse.unquote(query_params["name"])
 
 if 'pet_name' not in st.session_state:
     st.session_state.pet_name = default_name
 
-# 이름 입력창
 pet_name_input = st.sidebar.text_input("🐶 반려동물 이름", value=st.session_state.pet_name)
-
 if pet_name_input != st.session_state.pet_name:
     st.session_state.pet_name = pet_name_input
-    # 이름이 바뀌면 즉시 URL 주소창에 새 이름을 갱신합니다.
     st.query_params["name"] = urllib.parse.quote(pet_name_input)
-    st.sidebar.success(f"'{pet_name_input}'(으)로 이름이 변경되었습니다! 🔄 지금 바로 스마트폰 [홈 화면에 추가]를 다시 해주세요.")
+    st.sidebar.success(f"이름이 변경되었습니다! 스마트폰 [홈 화면에 추가]를 다시 해주세요.")
 
 ui_scale = st.sidebar.slider("🔍 화면 크기 조절 (%)", 50, 150, 100) / 100.0
 
@@ -82,12 +75,34 @@ st.markdown(custom_css, unsafe_allow_html=True)
 st.markdown('<div class="notranslate" translate="no">', unsafe_allow_html=True)
 
 # ==========================================
-# 2. 데이터베이스 및 타이틀
+# 2. 구글 시트 데이터베이스 연동 엔진 ★ (여기서부터 진짜 클라우드 저장!)
 # ==========================================
-if 'pet_logs' not in st.session_state:
-    st.session_state.pet_logs = pd.DataFrame(columns=["시간", "활동"])
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception as e:
+    st.error("⚠️ 구글 시트 연결 설정에 문제가 있습니다.")
+    st.stop()
 
-df = st.session_state.pet_logs
+@st.cache_data(ttl=2) 
+def load_data(uid):
+    try:
+        loaded_df = conn.read(worksheet=uid, ttl=0)
+        if loaded_df.empty or "시간" not in loaded_df.columns:
+            return pd.DataFrame(columns=["시간", "활동"])
+        return loaded_df.dropna(subset=["시간", "활동"])
+    except Exception as e:
+        st.warning(f"⚠️ '{uid}' 시트가 없습니다. 아무 버튼이나 누르면 자동으로 생성됩니다!")
+        return pd.DataFrame(columns=["시간", "활동"])
+
+def save_data(data_to_save, uid):
+    try:
+        conn.update(worksheet=uid, data=data_to_save)
+        st.cache_data.clear() 
+    except Exception as e:
+        st.error("🚨 구글 시트 저장 실패! 시트 공유 권한을 확인하세요.")
+
+# 데이터 불러오기
+df = load_data(user_id)
 selected_date = st.date_input("📅 날짜 선택", now_kst().date())
 target_date_str = selected_date.strftime("%Y-%m-%d")
 
@@ -100,9 +115,11 @@ else:
 st.markdown(f"### 📊 {st.session_state.pet_name} 스마트 관제 센터 <span style='font-size: 0.5em; color: gray;'>{APP_VERSION}</span>", unsafe_allow_html=True)
 
 def add_record(act, custom_time=None):
+    global df
     t = custom_time if custom_time else now_kst().strftime("%Y-%m-%d %H:%M:%S")
     new_row = pd.DataFrame([{"시간": t, "활동": act}])
-    st.session_state.pet_logs = pd.concat([st.session_state.pet_logs, new_row], ignore_index=True)
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_data(df, user_id) # 구글 시트에 즉시 덮어쓰기!
     st.rerun()
 
 # ==========================================
@@ -113,8 +130,8 @@ st.subheader("💡 실시간 배변 모니터링")
 def get_timer_state(activity_name):
     if not target_df.empty:
         records = target_df[
-            target_df['활동'].str.contains(activity_name) & 
-            ~target_df['활동'].str.contains('차감')
+            target_df['활동'].str.contains(activity_name, na=False) & 
+            ~target_df['활동'].str.contains('차감', na=False)
         ]
         if not records.empty:
             last_record = records.iloc[-1]
@@ -213,7 +230,7 @@ with row2_col2:
     if st.button("🦮+💦+💩 소변과 대변", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
 
 # ==========================================
-# 5. 누적 데이터 현황 및 수동 조정 (위치 변경됨!)
+# 5. 누적 데이터 현황 및 수동 조정
 # ==========================================
 st.divider()
 st.header(f"📊 {target_date_str} 누적 현황")
@@ -221,12 +238,12 @@ st.header(f"📊 {target_date_str} 누적 현황")
 def get_count(label):
     if target_df.empty: return 0
     plus = len(target_df[
-        target_df['활동'].str.contains(label) & 
-        ~target_df['활동'].str.contains('차감|끄기|통계제외')
+        target_df['활동'].str.contains(label, na=False) & 
+        ~target_df['활동'].str.contains('차감|끄기|통계제외', na=False)
     ])
     minus = len(target_df[
-        target_df['활동'].str.contains(label) & 
-        target_df['활동'].str.contains('차감')
+        target_df['활동'].str.contains(label, na=False) & 
+        target_df['활동'].str.contains('차감', na=False)
     ])
     return max(0, plus - minus)
 
@@ -240,7 +257,6 @@ for label, count, bg, text_c in counts:
 metrics_html += "</div>"
 st.markdown(metrics_html, unsafe_allow_html=True)
 
-# 누적 현황 바로 아래에 수동 조정 버튼 배치
 st.write("🔢 **누적 횟수 수동 조정**")
 adj_col1, adj_col2, adj_col3 = st.columns(3)
 with adj_col1:
@@ -251,7 +267,7 @@ with adj_col3:
     if st.button("🦮 산책 -1", use_container_width=True): add_record("🦮 산책 차감 (-1)")
 
 # ==========================================
-# 6. 기록 관리 (취소 전용) (위치 변경됨!)
+# 6. 기록 관리 (취소 전용)
 # ==========================================
 st.divider()
 st.header("🕒 기록 관리")
@@ -259,7 +275,9 @@ if not target_df.empty:
     last_idx = target_df.index[-1]
     st.success(f"✔️ 직전 기록: {target_df.loc[last_idx, '시간'][11:16]} | {target_df.loc[last_idx, '활동']}")
     if st.button("❌ 방금 기록 취소", use_container_width=True):
-        st.session_state.pet_logs = st.session_state.pet_logs.drop(last_idx)
+        # 파이썬 문법 에러(SyntaxError)를 해결하기 위해 global df 구문을 삭제했습니다.
+        df = df.drop(last_idx)
+        save_data(df, user_id) # 삭제 후 구글 시트에 다시 덮어쓰기
         st.rerun()
 
 # ==========================================
@@ -289,7 +307,7 @@ close_html = """
     <h1 style="color: white; margin-bottom: 10px;">🔒 화면 보호 모드</h1>
     <p style="color: #ccc; margin-bottom: 30px; font-size: 1.1rem; line-height: 1.5;">
         모든 버튼 터치가 차단되었습니다.<br>
-        데이터는 안전하게 보존 중입니다.<br><br>
+        데이터는 구글 클라우드에 안전하게 보존 중입니다.<br><br>
         <strong>스마트폰의 [홈 버튼]을 눌러<br>바탕화면으로 나가주세요.</strong>
     </p>
     <a href="#" style="color: #666; text-decoration: underline; font-size: 0.9rem;">다시 앱으로 돌아가기</a>
@@ -298,7 +316,7 @@ close_html = """
 st.markdown(close_html, unsafe_allow_html=True)
 
 # ==========================================
-# 8. 하단 고정 꼬리말 (버전 정보)
+# 8. 하단 고정 꼬리말
 # ==========================================
 footer_html = f"""
 <div class="footer notranslate" translate="no" style="margin-bottom: 50px;">
@@ -308,5 +326,5 @@ footer_html = f"""
 st.markdown(footer_html, unsafe_allow_html=True)
 
 # ==========================================
-# END OF CODE - v8.5.3
+# END OF CODE - v9.5.1
 # ==========================================
