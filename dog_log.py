@@ -6,17 +6,23 @@
 # - v8.1 (2026-03-18): 화면 상단/하단 및 사이드바에 버전 정보 UI 추가.
 # - v8.2 (2026-03-18): 소변/대변 시간 수동 수정 기능 및 타이머 끄기 버튼 추가.
 # - v8.3 (2026-03-18): 시간 수동 기록 시 누적 횟수 제외 처리, 타이머 끄기 완벽 초기화 구현.
+# - v8.4 (2026-03-18): 앱 안전 종료 버튼 추가.
+# - v8.5 (2026-03-18): 반려동물 이름 영구 유지 방식 변경 (URL 파라미터 활용).
+# - v8.5.1 (2026-03-18): 앱 안전 종료 버튼 색상을 밝은 색으로 변경.
+# - v8.5.2 (2026-03-18): 누적 현황과 기록 관리 패널의 위치(순서) 변경.
+# - v8.5.3 (2026-03-18): 누적 횟수 수동 조정 버튼을 누적 현황 바로 아래로 이동.
 # ==========================================
 
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 from datetime import datetime, timezone, timedelta
+import urllib.parse
 
 # ==========================================
 # 0. 앱 기본 설정 및 버전 정보
 # ==========================================
-APP_VERSION = "v8.3"
+APP_VERSION = "v8.5.3"
 APP_UPDATE_DATE = "2026-03-18"
 
 KST = timezone(timedelta(hours=9))
@@ -26,12 +32,31 @@ def now_kst():
 st.set_page_config(page_title=f"스마트 관제 센터 {APP_VERSION}", layout="centered", page_icon="🐾")
 
 # ==========================================
-# 1. 사이드바: 설정 및 UI 조절
+# 1. 사이드바: 설정 및 이름 기억 마법 (URL 쿼리 파라미터)
 # ==========================================
 st.sidebar.header("⚙️ 설정")
 st.sidebar.caption(f"🚀 현재 버전: **{APP_VERSION}**") 
 
-pet_name = st.sidebar.text_input("🐶 반려동물 이름", value="말티푸")
+# [핵심 로직] URL 주소창에서 'name' 이라는 값을 찾습니다.
+query_params = st.query_params
+default_name = "말티푸"
+
+if "name" in query_params:
+    # 주소창에 이름이 있으면 가져옵니다. (한글 깨짐 방지 디코딩)
+    default_name = urllib.parse.unquote(query_params["name"])
+
+if 'pet_name' not in st.session_state:
+    st.session_state.pet_name = default_name
+
+# 이름 입력창
+pet_name_input = st.sidebar.text_input("🐶 반려동물 이름", value=st.session_state.pet_name)
+
+if pet_name_input != st.session_state.pet_name:
+    st.session_state.pet_name = pet_name_input
+    # 이름이 바뀌면 즉시 URL 주소창에 새 이름을 갱신합니다.
+    st.query_params["name"] = urllib.parse.quote(pet_name_input)
+    st.sidebar.success(f"'{pet_name_input}'(으)로 이름이 변경되었습니다! 🔄 지금 바로 스마트폰 [홈 화면에 추가]를 다시 해주세요.")
+
 ui_scale = st.sidebar.slider("🔍 화면 크기 조절 (%)", 50, 150, 100) / 100.0
 
 custom_css = f"""
@@ -72,7 +97,7 @@ if not df.empty:
 else:
     target_df = pd.DataFrame(columns=["시간", "활동", "날짜"])
 
-st.markdown(f"### 📊 {pet_name} 스마트 관제 센터 <span style='font-size: 0.5em; color: gray;'>{APP_VERSION}</span>", unsafe_allow_html=True)
+st.markdown(f"### 📊 {st.session_state.pet_name} 스마트 관제 센터 <span style='font-size: 0.5em; color: gray;'>{APP_VERSION}</span>", unsafe_allow_html=True)
 
 def add_record(act, custom_time=None):
     t = custom_time if custom_time else now_kst().strftime("%Y-%m-%d %H:%M:%S")
@@ -86,20 +111,13 @@ def add_record(act, custom_time=None):
 st.subheader("💡 실시간 배변 모니터링")
 
 def get_timer_state(activity_name):
-    """
-    해당 활동의 마지막 시간을 찾습니다.
-    '차감'이나 '끄기', '리셋' 기록이 있으면 타이머를 표시하지 않도록(None) 처리합니다.
-    (수동으로 수정한 '시간수정' 기록은 타이머 기준점으로 사용됩니다.)
-    """
     if not target_df.empty:
-        # 순수한 활동 기록(수동 기록 포함)만 필터링 (누적 카운트용 키워드 제외)
         records = target_df[
             target_df['활동'].str.contains(activity_name) & 
             ~target_df['활동'].str.contains('차감')
         ]
         if not records.empty:
             last_record = records.iloc[-1]
-            # 마지막 기록이 '끄기' 류의 명령이라면 None 반환 (초기화 상태)
             if "끄기" in last_record['활동'] or "리셋" in last_record['활동']:
                 return None
             return str(last_record['시간'])
@@ -132,24 +150,14 @@ timer_html = f"""
         const el_h = document.getElementById(id_h);
         const el_m = document.getElementById(id_m);
         const dot = document.getElementById(dot_id);
-        
-        // 마지막 시간이 없으면(또는 리셋되었다면) 표시를 초기화
-        if(!lastTimeStr) {{ 
-            el_h.innerText = '--'; 
-            el_m.innerText = '--'; 
-            dot.style.visibility = 'visible'; 
-            return; 
-        }}
-        
+        if(!lastTimeStr) {{ el_h.innerText = '--'; el_m.innerText = '--'; dot.style.visibility = 'visible'; return; }}
         const diff = new Date() - new Date(lastTimeStr);
         if(diff < 0) return;
-        
         const mins = Math.floor(diff/60000);
         el_h.innerText = String(Math.floor(mins/60)).padStart(2,'0');
         el_m.innerText = String(mins%60).padStart(2,'0');
         dot.style.visibility = dot.style.visibility === 'hidden' ? 'visible' : 'hidden';
     }}
-    
     setInterval(() => {{
         update('p_hrs', 'p_mins', 'p_dot', "{last_pee_iso}");
         update('d_hrs', 'd_mins', 'd_dot', "{last_poop_iso}");
@@ -165,11 +173,9 @@ with edit_col1:
         new_time_p = st.time_input("소변 시각 선택", now_kst().time(), key="time_p")
         if st.button("수정된 시각으로 기록", key="btn_p"):
             final_dt_p = f"{target_date_str} {new_time_p.strftime('%H:%M:%S')}"
-            # ★ 핵심: '(통계제외)' 문구를 추가하여 아래 get_count 함수에서 횟수를 세지 않도록 합니다.
             add_record("💦 소변(시간수정) (통계제외)", custom_time=final_dt_p)
             
         if st.button("💧 소변 타이머 리셋(끄기)", use_container_width=True):
-            # ★ 핵심: '끄기' 문구를 남겨 get_timer_state가 이를 인식하고 타이머를 None으로 만듭니다.
             add_record("💦 소변 타이머 끄기 (통계제외)")
 
 with edit_col2:
@@ -207,40 +213,17 @@ with row2_col2:
     if st.button("🦮+💦+💩 소변과 대변", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
 
 # ==========================================
-# 5. 기록 관리 (취소 및 수동 조정)
-# ==========================================
-st.divider()
-st.header("🕒 기록 관리")
-if not target_df.empty:
-    last_idx = target_df.index[-1]
-    st.success(f"✔️ 직전 기록: {target_df.loc[last_idx, '시간'][11:16]} | {target_df.loc[last_idx, '활동']}")
-    if st.button("❌ 방금 기록 취소", use_container_width=True):
-        st.session_state.pet_logs = st.session_state.pet_logs.drop(last_idx)
-        st.rerun()
-
-st.write("🔢 **누적 횟수 수동 조정**")
-adj_col1, adj_col2, adj_col3 = st.columns(3)
-with adj_col1:
-    if st.button("💦 소변 -1", use_container_width=True): add_record("💦 소변 차감 (-1)")
-with adj_col2:
-    if st.button("💩 대변 -1", use_container_width=True): add_record("💩 대변 차감 (-1)")
-with adj_col3:
-    if st.button("🦮 산책 -1", use_container_width=True): add_record("🦮 산책 차감 (-1)")
-
-# ==========================================
-# 6. 누적 데이터 현황
+# 5. 누적 데이터 현황 및 수동 조정 (위치 변경됨!)
 # ==========================================
 st.divider()
 st.header(f"📊 {target_date_str} 누적 현황")
 
 def get_count(label):
     if target_df.empty: return 0
-    # '통계제외', '차감', '끄기'가 포함된 기록은 세지 않습니다.
     plus = len(target_df[
         target_df['활동'].str.contains(label) & 
         ~target_df['활동'].str.contains('차감|끄기|통계제외')
     ])
-    # '-1' 버튼을 누른 횟수
     minus = len(target_df[
         target_df['활동'].str.contains(label) & 
         target_df['활동'].str.contains('차감')
@@ -251,22 +234,79 @@ counts = [("소변", get_count("소변"), "#E3F2FD", "#1565C0"),
           ("대변", get_count("대변"), "#FFF3E0", "#E65100"),
           ("산책", get_count("산책"), "#E8F5E9", "#2E7D32")]
 
-metrics_html = '<div style="display: flex; gap: 10px; justify-content: center; text-align: center; margin-bottom: 50px;">'
+metrics_html = '<div style="display: flex; gap: 10px; justify-content: center; text-align: center; margin-bottom: 20px;">'
 for label, count, bg, text_c in counts:
     metrics_html += f'<div style="flex: 1; background-color: {bg}; padding: 15px; border-radius: 12px; border: 1px solid {text_c}33;"><div style="font-size: 1rem; font-weight: bold; color: {text_c};">{label}</div><div style="font-size: 1.8rem; font-weight: 900; color: {text_c};">{count}</div></div>'
 metrics_html += "</div>"
 st.markdown(metrics_html, unsafe_allow_html=True)
 
+# 누적 현황 바로 아래에 수동 조정 버튼 배치
+st.write("🔢 **누적 횟수 수동 조정**")
+adj_col1, adj_col2, adj_col3 = st.columns(3)
+with adj_col1:
+    if st.button("💦 소변 -1", use_container_width=True): add_record("💦 소변 차감 (-1)")
+with adj_col2:
+    if st.button("💩 대변 -1", use_container_width=True): add_record("💩 대변 차감 (-1)")
+with adj_col3:
+    if st.button("🦮 산책 -1", use_container_width=True): add_record("🦮 산책 차감 (-1)")
+
 # ==========================================
-# 7. 하단 고정 꼬리말 (버전 정보)
+# 6. 기록 관리 (취소 전용) (위치 변경됨!)
+# ==========================================
+st.divider()
+st.header("🕒 기록 관리")
+if not target_df.empty:
+    last_idx = target_df.index[-1]
+    st.success(f"✔️ 직전 기록: {target_df.loc[last_idx, '시간'][11:16]} | {target_df.loc[last_idx, '활동']}")
+    if st.button("❌ 방금 기록 취소", use_container_width=True):
+        st.session_state.pet_logs = st.session_state.pet_logs.drop(last_idx)
+        st.rerun()
+
+# ==========================================
+# 7. 안전 종료 버튼
+# ==========================================
+st.divider()
+st.markdown("---")
+close_html = """
+<style>
+    #close-screen {
+        display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background-color: rgba(0,0,0,0.9); color: white; z-index: 9999999;
+        text-align: center; flex-direction: column; justify-content: center; align-items: center;
+    }
+    #close-screen:target { display: flex; }
+    .close-btn {
+        background-color: #FF8A65; 
+        color: white; padding: 15px 30px; border-radius: 8px;
+        text-decoration: none; font-size: 1.2rem; font-weight: bold; width: 80%; max-width: 300px;
+        text-align: center; margin: 20px auto; display: block; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        border: 2px solid #FF5722; 
+    }
+</style>
+<a href="#close-screen" class="close-btn">🚪 앱 안전 종료</a>
+
+<div id="close-screen">
+    <h1 style="color: white; margin-bottom: 10px;">🔒 화면 보호 모드</h1>
+    <p style="color: #ccc; margin-bottom: 30px; font-size: 1.1rem; line-height: 1.5;">
+        모든 버튼 터치가 차단되었습니다.<br>
+        데이터는 안전하게 보존 중입니다.<br><br>
+        <strong>스마트폰의 [홈 버튼]을 눌러<br>바탕화면으로 나가주세요.</strong>
+    </p>
+    <a href="#" style="color: #666; text-decoration: underline; font-size: 0.9rem;">다시 앱으로 돌아가기</a>
+</div>
+"""
+st.markdown(close_html, unsafe_allow_html=True)
+
+# ==========================================
+# 8. 하단 고정 꼬리말 (버전 정보)
 # ==========================================
 footer_html = f"""
-<div class="footer notranslate" translate="no">
+<div class="footer notranslate" translate="no" style="margin-bottom: 50px;">
     Smart Pet Care Center <strong>{APP_VERSION}</strong> | Last Update: {APP_UPDATE_DATE}
 </div>
 """
 st.markdown(footer_html, unsafe_allow_html=True)
 
 # ==========================================
-# END OF CODE - v8.3
+# END OF CODE - v8.5.3
 # ==========================================
