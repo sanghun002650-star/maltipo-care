@@ -2,13 +2,14 @@
 # [ 말티푸 스마트 관제 센터 (구글 시트 클라우드 버전) ]
 # 
 # 📝 수정 이력 (Change Log)
-# - v8.5.3 (2026-03-18): UI/UX 최종 완성본 (타이머 수정, 누적 조정 등)
-# - v9.5 (2026-03-18): v8.5.3의 완벽한 UI에 구글 시트 영구 저장 엔진 결합. 
-# - v9.5.1 (2026-03-18): 기록 취소 버튼 파이썬 문법 에러(SyntaxError) 수정.
+# - v9.5 (2026-03-18): 구글 시트 영구 저장 엔진 결합.
+# - v9.5.1 (2026-03-18): 기록 취소 파이썬 문법 에러 수정.
+# - v9.5.2 (2026-03-18): 침묵의 에러(Silent Failure) 완벽 차단. 
+#                      저장 실패 시 강제 새로고침을 막고 정확한 에러 원인(탭 없음 등)을 출력하도록 개선.
 # ==========================================
 
 import streamlit as st
-import streamlit.components.v1 as components
+import streamlit.components.v1 as components  # ★ 절대 지우지 마세요! 타이머 전광판 도구입니다.
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timezone, timedelta
@@ -17,7 +18,7 @@ import urllib.parse
 # ==========================================
 # 0. 앱 기본 설정 및 버전 정보
 # ==========================================
-APP_VERSION = "v9.5.1"
+APP_VERSION = "v9.5.2(클라우드 안전판)"
 APP_UPDATE_DATE = "2026-03-18"
 
 KST = timezone(timedelta(hours=9))
@@ -33,7 +34,8 @@ st.sidebar.header("⚙️ 설정")
 st.sidebar.caption(f"🚀 현재 버전: **{APP_VERSION}**") 
 
 # 사용자 ID (구글 시트 탭 이름으로 사용됨)
-user_id = st.sidebar.text_input("👤 데이터 저장 ID (시트 탭 이름)", value="7475")
+user_id = st.sidebar.text_input("👤 데이터 저장 ID (구글 시트 탭 이름)", value="7475")
+st.sidebar.caption("※ 주의: 여기에 입력한 ID와 똑같은 이름의 '탭'이 구글 시트에 있어야 저장이 됩니다!")
 
 # 이름 URL 파라미터 로직
 query_params = st.query_params
@@ -75,12 +77,12 @@ st.markdown(custom_css, unsafe_allow_html=True)
 st.markdown('<div class="notranslate" translate="no">', unsafe_allow_html=True)
 
 # ==========================================
-# 2. 구글 시트 데이터베이스 연동 엔진 ★ (여기서부터 진짜 클라우드 저장!)
+# 2. 구글 시트 데이터베이스 연동 엔진 
 # ==========================================
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
-    st.error("⚠️ 구글 시트 연결 설정에 문제가 있습니다.")
+    st.error("⚠️ 구글 시트 연결 설정(Secrets)에 문제가 있습니다.")
     st.stop()
 
 @st.cache_data(ttl=2) 
@@ -91,15 +93,22 @@ def load_data(uid):
             return pd.DataFrame(columns=["시간", "활동"])
         return loaded_df.dropna(subset=["시간", "활동"])
     except Exception as e:
-        st.warning(f"⚠️ '{uid}' 시트가 없습니다. 아무 버튼이나 누르면 자동으로 생성됩니다!")
+        # 데이터를 읽지 못했을 때의 안내 문구 강화
+        st.warning(f"⚠️ 구글 시트에서 '{uid}' 탭을 찾을 수 없거나 데이터가 비어있습니다. 버튼을 눌러 저장을 시도해보세요.")
         return pd.DataFrame(columns=["시간", "활동"])
 
 def save_data(data_to_save, uid):
+    """안전장치가 추가된 저장 함수. 성공 여부와 메시지를 반환합니다."""
     try:
         conn.update(worksheet=uid, data=data_to_save)
         st.cache_data.clear() 
+        return True, "저장 성공"
     except Exception as e:
-        st.error("🚨 구글 시트 저장 실패! 시트 공유 권한을 확인하세요.")
+        err_msg = str(e).lower()
+        if "not found" in err_msg or "worksheet" in err_msg:
+            return False, f"🚨 저장 실패: 구글 시트에 '{uid}'(이)라는 이름의 탭이 없습니다! 구글 시트를 열고 맨 아래 [+] 버튼을 눌러 '{uid}' 탭을 먼저 만들어주세요."
+        else:
+            return False, f"🚨 저장 실패: 시트 공유 권한을 확인해주세요. (에러: {e})"
 
 # 데이터 불러오기
 df = load_data(user_id)
@@ -115,12 +124,19 @@ else:
 st.markdown(f"### 📊 {st.session_state.pet_name} 스마트 관제 센터 <span style='font-size: 0.5em; color: gray;'>{APP_VERSION}</span>", unsafe_allow_html=True)
 
 def add_record(act, custom_time=None):
-    global df
     t = custom_time if custom_time else now_kst().strftime("%Y-%m-%d %H:%M:%S")
     new_row = pd.DataFrame([{"시간": t, "활동": act}])
-    df = pd.concat([df, new_row], ignore_index=True)
-    save_data(df, user_id) # 구글 시트에 즉시 덮어쓰기!
-    st.rerun()
+    
+    # 임시로 합친 데이터를 먼저 만듭니다 (에러가 날 경우 기존 데이터 보호)
+    new_df = pd.concat([df, new_row], ignore_index=True)
+    
+    # 구글 시트에 저장 시도 (백그라운드)
+    success, msg = save_data(new_df, user_id)
+    
+    if success:
+        st.rerun() # 성공 시에만 화면 새로고침 (수치 갱신)
+    else:
+        st.error(msg) # 실패 시 새로고침을 멈추고 에러 메시지를 화면에 띄웁니다!
 
 # ==========================================
 # 3. 실시간 배변 모니터링 (타이머 & 시간수정)
@@ -275,10 +291,12 @@ if not target_df.empty:
     last_idx = target_df.index[-1]
     st.success(f"✔️ 직전 기록: {target_df.loc[last_idx, '시간'][11:16]} | {target_df.loc[last_idx, '활동']}")
     if st.button("❌ 방금 기록 취소", use_container_width=True):
-        # 파이썬 문법 에러(SyntaxError)를 해결하기 위해 global df 구문을 삭제했습니다.
-        df = df.drop(last_idx)
-        save_data(df, user_id) # 삭제 후 구글 시트에 다시 덮어쓰기
-        st.rerun()
+        new_df = df.drop(last_idx)
+        success, msg = save_data(new_df, user_id)
+        if success:
+            st.rerun()
+        else:
+            st.error(msg)
 
 # ==========================================
 # 7. 안전 종료 버튼
@@ -326,5 +344,5 @@ footer_html = f"""
 st.markdown(footer_html, unsafe_allow_html=True)
 
 # ==========================================
-# END OF CODE - v9.5.1
+# END OF CODE - v9.5.2
 # ==========================================
