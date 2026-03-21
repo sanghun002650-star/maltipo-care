@@ -1,7 +1,7 @@
 # *********************************************************************
 # 🐾 스마트 관제 센터 소스 코드 (Smart Pet Care Center)
 # 
-# * 현재 버전   : v10.8 (갤럭시 노트 20 전용 핏 & 모니터링 투톤 분할판)
+# * 현재 버전   : v10.9 (누적 카운터 오류 완벽 수정판)
 # * 최종 수정일 : 2026-03-21
 # * 개발 및 유지보수 : Lee Sang-hoon (30년차 수석 엔지니어)
 # *********************************************************************
@@ -15,27 +15,25 @@ import os
 # ==========================================
 # 0. 엔진 세팅 및 KST 시간 설정
 # ==========================================
-APP_VERSION = "v10.8 (Note 20 핏 & 분할 모니터링)"
+APP_VERSION = "v10.9 (카운터 철통 방어판)"
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
 
 DATA_FILE = "pet_care_data.csv"
 
 VERSION_LOGS = {
-    "v10.8": "갤럭시 노트20 UI 최적화, 모니터링 창 상/하단(경과시간/발생시각) 투톤 분할 적용",
+    "v10.9": "[버그 수정] CSV 데이터 로드 시 빈칸(NaN)으로 인한 누적 카운터 먹통 현상 완벽 해결",
+    "v10.8": "갤럭시 노트20 UI 최적화, 모니터링 창 상/하단 투톤 분할 적용",
     "v10.7": "CSV 영구 저장 기능 추가(앱 종료 시 데이터 보존) 및 모니터링 시각 표시",
     "v10.6": "소스코드 상단에 버전 명세서 추가 및 터미널 구동 로그 출력",
-    "v10.5": "앱 화면 최하단에 현재 버전 정보(Footer) 고정",
     "v10.2": "누적 현황과 배변 컨트롤 패널 위치 맞교환 (동선 최적화)"
 }
 
 st.set_page_config(page_title="스마트 관제 센터", layout="centered", page_icon="🐾")
 
-# [디자인 마스터] 노트 20의 세로로 긴 화면에 맞춘 모바일 최적화 CSS
 st.markdown("""
 <style>
     @media (max-width: 768px) {
-        /* 노트 20에서 버튼들이 나란히 꽉 차게 배열되도록 강제 조정 */
         div[data-testid="stHorizontalBlock"] { flex-direction: row !important; flex-wrap: wrap !important; gap: 5px !important; }
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] { flex: 1 1 48% !important; min-width: 48% !important; }
     }
@@ -76,9 +74,13 @@ def add_record(act, c_time=None):
     st.session_state.pet_logs.to_csv(DATA_FILE, index=False) 
     st.rerun()
 
+# [버그 수정] 시간이 글자가 아닌 객체로 인식되어 에러나는 현상을 astype(str)로 원천 차단
 t_date = now_kst().strftime("%Y-%m-%d")
 df = st.session_state.pet_logs
-target_df = df[df['시간'].str.contains(t_date)] if not df.empty else pd.DataFrame()
+if not df.empty and "시간" in df.columns:
+    target_df = df[df['시간'].astype(str).str.contains(t_date, na=False)]
+else:
+    target_df = pd.DataFrame(columns=["시간", "활동"])
 
 # ==========================================
 # 3. 메인 타이틀
@@ -86,15 +88,16 @@ target_df = df[df['시간'].str.contains(t_date)] if not df.empty else pd.DataFr
 st.markdown(f"<h2 style='text-align:center; padding-bottom: 15px;'>📊 {st.session_state.pet_name} 스마트 관제 센터</h2>", unsafe_allow_html=True)
 
 # ==========================================
-# 4. 실시간 배변 모니터링 (★상/하 투톤 분할 박스 적용★)
+# 4. 실시간 배변 모니터링 (노트20 투톤 디자인 유지)
 # ==========================================
 def get_iso(act):
     if target_df.empty: return ""
-    # "통계제외"가 붙은 기록도 모니터링 타이머에는 반영되도록 필터링 로직 분리!
-    recs = target_df[target_df['활동'].str.contains(act) & ~target_df['활동'].str.contains('차감')]
+    acts = target_df['활동'].astype(str)
+    recs = target_df[acts.str.contains(act, na=False) & ~acts.str.contains('차감', na=False)]
     if recs.empty: return ""
     last = recs.iloc[-1]
-    return "" if ("끄기" in last['활동'] or "리셋" in last['활동']) else str(last['시간']).replace(" ", "T") + "+09:00"
+    if "끄기" in str(last['활동']) or "리셋" in str(last['활동']): return ""
+    return str(last['시간']).replace(" ", "T") + "+09:00"
 
 p_iso = get_iso("소변")
 d_iso = get_iso("대변")
@@ -105,7 +108,6 @@ d_time_str = d_iso[11:16] if d_iso else "--:--"
 st.subheader("💡 실시간 배변 모니터링")
 c1, c2 = st.columns(2)
 
-# [디자인 포인트] 테두리는 하나지만 내부는 두 칸으로 나뉜 고급 카드형 UI
 with c1:
     components.html(f"""
     <div style="border-radius:15px; border:3px solid #4CAF50; font-family:sans-serif; overflow:hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
@@ -155,7 +157,7 @@ with c2:
     """, height=155)
 
 # ==========================================
-# 5. 수동기록 및 리셋 (모니터링 창 전용 - 통계 적용 안됨)
+# 5. 수동기록 및 리셋
 # ==========================================
 e1, e2 = st.columns(2)
 with e1:
@@ -175,7 +177,7 @@ with e2:
             add_record("💩 대변 리셋 (통계제외)")
 
 # ==========================================
-# 6. 배변 컨트롤 패널 (모니터링 & 통계 동시 적용)
+# 6. 배변 컨트롤 패널 (이 버튼을 누르면 카운터 올라감)
 # ==========================================
 st.divider()
 st.header("🔘 배변 컨트롤 패널")
@@ -199,16 +201,17 @@ with s4:
     if st.button("🦮+💦+💩 모두 해결", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
 
 # ==========================================
-# 7. 누적 데이터 현황 보드
+# 7. 누적 데이터 현황 보드 (★강력 방어 로직 적용★)
 # ==========================================
 st.divider()
 st.header("📈 오늘의 누적 데이터 현황")
 
 def g_cnt(l):
     if target_df.empty: return 0
-    # "통계제외" 글자가 들어간 기록(수동조절)은 카운트에서 철저히 배제됩니다!
-    p = len(target_df[target_df['활동'].str.contains(l) & ~target_df['활동'].str.contains('차감|리셋|통계제외')])
-    m = len(target_df[target_df['활동'].str.contains(l) & target_df['활동'].str.contains('차감')])
+    # [버그 수정] astype(str)와 na=False 옵션을 넣어 NaN 데이터로 인한 에러를 원천 차단했습니다!
+    acts = target_df['활동'].astype(str)
+    p = len(target_df[acts.str.contains(l, na=False) & ~acts.str.contains('차감|리셋|통계제외', na=False, regex=True)])
+    m = len(target_df[acts.str.contains(l, na=False) & acts.str.contains('차감', na=False)])
     return max(0, p-m)
 
 st.info(f"💧 총 소변: **{g_cnt('소변')}회** ｜ 💩 총 대변: **{g_cnt('대변')}회** ｜ 🦮 총 산책: **{g_cnt('산책')}회**")
@@ -222,7 +225,7 @@ with a3:
     if st.button("산책 횟수 -1", use_container_width=True): add_record("🦮 산책 차감 (-1)")
 
 # ==========================================
-# 8. 취소 기능 (취소 시 파일 즉시 반영)
+# 8. 취소 기능
 # ==========================================
 st.divider()
 if not target_df.empty:
