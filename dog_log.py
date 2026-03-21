@@ -1,32 +1,27 @@
 # *********************************************************************
 # 🐾 스마트 관제 센터 소스 코드 (Smart Pet Care Center)
 # 
-# * 현재 버전   : v10.6 (코드 내부 명세 및 터미널 출력 기능 추가)
-# * 최종 수정일 : 2026-03-20
-# * 개발 및 유지보수 : Lee Sang-hoon (KORAIL 수석 엔지니어)
-# 
-# [ 업데이트 주요 내역 ]
-# - v10.6 : 소스코드 헤더 버전 명세 및 터미널 실행 로그 출력 기능.
-# - v10.5 : 앱 화면 최하단(Footer)에 현재 버전 정보 고정 표시.
-# - v10.4 : 컨트롤 패널 버튼 색상 무색(기본 테마) 통일.
-# - v10.3 : 사이드바에 버전 업데이트 유지보수 이력(Log) 추가.
-# - v10.2 : 누적 현황표(상단)와 컨트롤 패널(하단) 위치 동선 최적화.
-# - v10.1 : 소변/대변 모니터링 창 독립 분리 및 로컬 데이터베이스 안정화.
+# * 현재 버전   : v10.7 (영구 저장 및 시각 표시 탑재)
+# * 최종 수정일 : 2026-03-21
+# * 개발 및 유지보수 : Lee Sang-hoon
 # *********************************************************************
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 import streamlit.components.v1 as components
+import os # 파일 저장/불러오기를 위한 모듈 추가
 
 # ==========================================
-# 0. 엔진 세팅 및 터미널 출력 (엔지니어 전용)
+# 0. 엔진 세팅 및 KST 시간 설정
 # ==========================================
-APP_VERSION = "v10.6 (터미널 로그 출력판)"
+APP_VERSION = "v10.7 (블랙박스 영구저장판)"
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
 
-# ★ 터미널(검은 창)에 앱 구동 상태와 버전을 출력합니다 ★
+# 데이터가 영구 저장될 엑셀(CSV) 파일 이름
+DATA_FILE = "pet_care_data.csv"
+
 print(f"\n=========================================")
 print(f"🚀 스마트 관제 센터 엔진 가동 준비 완료!")
 print(f"📦 로드된 시스템 버전 : {APP_VERSION}")
@@ -34,6 +29,7 @@ print(f"⏰ 엔진 구동 시간 : {now_kst().strftime('%Y-%m-%d %H:%M:%S')}")
 print(f"=========================================\n")
 
 VERSION_LOGS = {
+    "v10.7": "CSV 영구 저장 기능 추가(앱 종료 시 데이터 보존) 및 모니터링 창에 마지막 발생 시각 명시",
     "v10.6": "소스코드 상단에 버전 명세서 추가 및 터미널(콘솔) 구동 로그 출력",
     "v10.5": "앱 화면 최하단에 현재 버전 정보(Footer)가 항상 표시되도록 고정",
     "v10.4": "집에서 소변/대변 버튼 색상을 무색(기본 테마)으로 변경",
@@ -45,7 +41,7 @@ VERSION_LOGS = {
 st.set_page_config(page_title="스마트 관제 센터", layout="centered", page_icon="🐾")
 
 # ==========================================
-# 1. 사이드바 (설정 및 업데이트 로그)
+# 1. 사이드바 (설정)
 # ==========================================
 st.sidebar.header("⚙️ 관제 센터 설정")
 st.sidebar.success(f"🚀 현재 버전: {APP_VERSION}")
@@ -63,28 +59,39 @@ if new_name != st.session_state.pet_name:
     st.rerun()
 
 # ==========================================
-# 2. 로컬 메모리 (잔고장 없는 데이터베이스)
+# 2. 블랙박스 영구 데이터베이스 (Load & Write)
 # ==========================================
+def load_data():
+    if os.path.exists(DATA_FILE):
+        return pd.read_csv(DATA_FILE)
+    else:
+        return pd.DataFrame(columns=["시간", "활동"])
+
+# 앱 시작 시 CSV 파일에서 기존 기록을 불러옴
 if 'pet_logs' not in st.session_state:
-    st.session_state.pet_logs = pd.DataFrame(columns=["시간", "활동"])
+    st.session_state.pet_logs = load_data()
 
 def add_record(act, c_time=None):
     t = c_time if c_time else now_kst().strftime("%Y-%m-%d %H:%M:%S")
     new_row = pd.DataFrame([{"시간": t, "활동": act}])
     st.session_state.pet_logs = pd.concat([st.session_state.pet_logs, new_row], ignore_index=True)
+    
+    # 메모리에 추가된 데이터를 파일(하드디스크)에 즉시 덮어쓰기 저장 (영구 보존)
+    st.session_state.pet_logs.to_csv(DATA_FILE, index=False) 
     st.rerun()
 
+# [중요] 화면에 보여지는 데이터는 '오늘(00시~24시)' 데이터로만 필터링!
 t_date = now_kst().strftime("%Y-%m-%d")
 df = st.session_state.pet_logs
 target_df = df[df['시간'].str.contains(t_date)] if not df.empty else pd.DataFrame()
 
 # ==========================================
-# 3. 메인 타이틀 (이름 연동)
+# 3. 메인 타이틀
 # ==========================================
 st.markdown(f"<h2 style='text-align:center; padding-bottom: 20px;'>📊 {st.session_state.pet_name} 스마트 관제 센터</h2>", unsafe_allow_html=True)
 
 # ==========================================
-# 4. 실시간 배변 모니터링 (소변 / 대변 분리)
+# 4. 실시간 배변 모니터링 (시각 표시 추가)
 # ==========================================
 def get_iso(act):
     if target_df.empty: return ""
@@ -96,13 +103,18 @@ def get_iso(act):
 p_iso = get_iso("소변")
 d_iso = get_iso("대변")
 
+# 정확한 시간(HH:MM)만 추출
+p_time_str = p_iso[11:16] if p_iso else "--:--"
+d_time_str = d_iso[11:16] if d_iso else "--:--"
+
 st.subheader("💡 실시간 배변 모니터링")
 c1, c2 = st.columns(2)
 
 with c1:
     components.html(f"""
     <div style="background:#E8F5E9; padding:20px; border-radius:15px; border:3px solid #4CAF50; text-align:center; font-family:sans-serif;">
-        <div style="color:#2E7D32; font-weight:bold; margin-bottom:10px;">💧 마지막 소변 경과</div>
+        <div style="color:#2E7D32; font-weight:bold; margin-bottom:5px;">💧 마지막 소변 경과</div>
+        <div style="color:#1B5E20; font-size:1.1rem; font-weight:bold; margin-bottom:10px; background:#C8E6C9; display:inline-block; padding:2px 10px; border-radius:5px;">발생 시각 {p_time_str}</div>
         <div style="font-size:2.5rem; font-weight:900; color:#1B5E20;" id="p_tm">00:00</div>
     </div>
     <script>
@@ -115,12 +127,13 @@ with c1:
         }}
         setInterval(upP,1000); upP();
     </script>
-    """, height=140)
+    """, height=160)
 
 with c2:
     components.html(f"""
     <div style="background:#FFF3E0; padding:20px; border-radius:15px; border:3px solid #FF9800; text-align:center; font-family:sans-serif;">
-        <div style="color:#E65100; font-weight:bold; margin-bottom:10px;">💩 마지막 대변 경과</div>
+        <div style="color:#E65100; font-weight:bold; margin-bottom:5px;">💩 마지막 대변 경과</div>
+        <div style="color:#BF360C; font-size:1.1rem; font-weight:bold; margin-bottom:10px; background:#FFE0B2; display:inline-block; padding:2px 10px; border-radius:5px;">발생 시각 {d_time_str}</div>
         <div style="font-size:2.5rem; font-weight:900; color:#BF360C;" id="d_tm">00:00</div>
     </div>
     <script>
@@ -133,7 +146,7 @@ with c2:
         }}
         setInterval(upD,1000); upD();
     </script>
-    """, height=140)
+    """, height=160)
 
 # ==========================================
 # 5. 수동기록 및 리셋 
@@ -202,16 +215,17 @@ with a3:
     if st.button("산책 횟수 -1", use_container_width=True): add_record("🦮 산책 차감 (-1)")
 
 # ==========================================
-# 8. 취소 기능
+# 8. 취소 기능 (취소 시에도 파일에 반영)
 # ==========================================
 st.divider()
 if not target_df.empty:
     if st.button("❌ 직전 기록 취소", use_container_width=True):
         st.session_state.pet_logs = st.session_state.pet_logs.drop(target_df.index[-1])
+        st.session_state.pet_logs.to_csv(DATA_FILE, index=False) # 취소된 상태로 파일 다시 덮어쓰기
         st.rerun()
 
 # ==========================================
-# 9. 앱 안전 종료 버튼 (빨간색 ✖ 플로팅 버튼)
+# 9. 앱 안전 종료 버튼
 # ==========================================
 st.markdown("""
 <style>
