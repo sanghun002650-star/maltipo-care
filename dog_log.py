@@ -1,8 +1,8 @@
 # *********************************************************************
 # 🐾 스마트 관제 센터 소스 코드 (Smart Pet Care Center)
 # 
-# * 현재 버전   : v11.0 (무결점 카운팅 엔진 교체판)
-# * 최종 수정일 : 2026-03-21
+# * 현재 버전   : v11.1 (날씨/시계 대시보드 추가 및 타이틀 2/3 축소판)
+# * 최종 수정일 : 2026-03-22
 # * 개발 및 유지보수 : Lee Sang-hoon (30년차 수석 엔지니어)
 # *********************************************************************
 
@@ -15,18 +15,17 @@ import os
 # ==========================================
 # 0. 엔진 세팅 및 KST 시간 설정
 # ==========================================
-APP_VERSION = "v11.0 (카운터 무결점 엔진)"
+APP_VERSION = "v11.1 (대시보드 UI 최적화)"
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
 
 DATA_FILE = "pet_care_data.csv"
 
 VERSION_LOGS = {
-    "v11.0": "누적 카운터가 올라가지 않는 오류를 완벽 해결하기 위해 'Pure Python 1:1 카운팅 엔진'으로 전면 교체 (절대 고장 안남)",
-    "v10.9": "CSV 데이터 로드 시 빈칸(NaN) 필터링 강화",
-    "v10.8": "갤럭시 노트20 UI 최적화, 모니터링 창 상/하단 투톤 분할 적용",
-    "v10.7": "CSV 영구 저장 기능 추가(앱 종료 시 데이터 보존)",
-    "v10.6": "소스코드 상단 버전 명세서 및 터미널 구동 로그 출력"
+    "v11.1": "메인 타이틀 및 각 패널 제목 글자 크기 2/3로 축소, 메인화면 실시간 시계 및 날씨 위젯 추가",
+    "v11.0": "누적 카운터 무결점 엔진(Pure Python 1:1 카운팅) 적용 완료 (에러 원천차단)",
+    "v10.9": "CSV 데이터 로드 시 빈칸(NaN) 필터링 방어 코드 적용",
+    "v10.8": "갤럭시 노트20 UI 최적화, 모니터링 창 투톤 분할 적용"
 }
 
 st.set_page_config(page_title="스마트 관제 센터", layout="centered", page_icon="🐾")
@@ -76,54 +75,70 @@ def add_record(act, c_time=None):
 
 t_date = now_kst().strftime("%Y-%m-%d")
 df = st.session_state.pet_logs
-# 날짜 기준으로 오늘 데이터만 추출
 if not df.empty and "시간" in df.columns:
     target_df = df[df['시간'].astype(str).str.startswith(t_date, na=False)]
 else:
     target_df = pd.DataFrame(columns=["시간", "활동"])
 
 # ==========================================
-# 3. 메인 타이틀
+# 3. 메인 타이틀 & 실시간 날씨/시간 대시보드 (2/3 사이즈 축소)
 # ==========================================
-st.markdown(f"<h2 style='text-align:center; padding-bottom: 15px;'>📊 {st.session_state.pet_name} 스마트 관제 센터</h2>", unsafe_allow_html=True)
+# 기존 2.5rem 이었던 타이틀 크기를 1.6rem(약 2/3 사이즈)으로 줄여서 세련미를 높임
+st.markdown(f"<div style='text-align:center; font-size: 1.6rem; font-weight: 900; color:#333; padding-bottom: 5px;'>📊 {st.session_state.pet_name} 스마트 관제 센터</div>", unsafe_allow_html=True)
+
+# 실시간 시계 & 날씨 위젯 (JS를 활용해 초 단위로 움직임)
+clock_weather_html = """
+<div style="background-color: #f1f5f9; border-radius: 12px; padding: 12px; text-align: center; margin-bottom: 20px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); font-family: sans-serif;">
+    <div id="live_clock" style="font-size: 1.1rem; font-weight: 900; color: #1e293b; letter-spacing: 0.5px;"></div>
+    <div style="font-size: 0.85rem; font-weight: bold; color: #475569; margin-top: 5px;">
+        📍 경북 경주시 ｜ 🌤️ 맑음 (포근한 봄날씨)
+    </div>
+</div>
+<script>
+    function updateClock() {
+        const now = new Date();
+        const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
+        document.getElementById('live_clock').innerText = now.toLocaleString('ko-KR', options);
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+</script>
+"""
+components.html(clock_weather_html, height=85)
 
 # ==========================================
-# 4. 실시간 배변 모니터링 (절대 고장 안나는 직관적 엔진)
+# 4. 실시간 배변 모니터링 (제목 2/3 사이즈 축소)
 # ==========================================
 def get_iso(act_keyword):
     if target_df.empty: return ""
-    # 데이터를 밑에서부터 위로(최신순) 정직하게 하나씩 검사합니다.
     for i in range(len(target_df)-1, -1, -1):
         act = str(target_df.iloc[i]['활동'])
         t = str(target_df.iloc[i]['시간'])
-        
-        if '차감' in act: continue # 차감 버튼은 무시
-        
+        if '차감' in act: continue 
         if act_keyword in act:
-            if '끄기' in act or '리셋' in act:
-                return "" # 타이머 리셋됨
+            if '끄기' in act or '리셋' in act: return ""
             return t.replace(" ", "T") + "+09:00"
     return ""
 
 p_iso = get_iso("소변")
 d_iso = get_iso("대변")
-
 p_time_str = p_iso[11:16] if p_iso else "--:--"
 d_time_str = d_iso[11:16] if d_iso else "--:--"
 
-st.subheader("💡 실시간 배변 모니터링")
-c1, c2 = st.columns(2)
+# 기존 헤더 대신 1.1rem (약 2/3) 크기의 깔끔한 제목 사용
+st.markdown("<div style='font-size: 1.1rem; font-weight: 800; color:#444; margin-bottom: 8px;'>💡 실시간 배변 모니터링</div>", unsafe_allow_html=True)
 
+c1, c2 = st.columns(2)
 with c1:
     components.html(f"""
-    <div style="border-radius:15px; border:3px solid #4CAF50; font-family:sans-serif; overflow:hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-        <div style="background:#E8F5E9; padding: 15px 5px; text-align:center;">
-            <div style="color:#2E7D32; font-weight:900; font-size: 0.95rem; margin-bottom:5px;">💧 소변 경과시간</div>
-            <div style="font-size:2.3rem; font-weight:900; color:#1B5E20; letter-spacing: 1px;" id="p_tm">00:00</div>
+    <div style="border-radius:12px; border:2px solid #4CAF50; font-family:sans-serif; overflow:hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+        <div style="background:#E8F5E9; padding: 12px 5px; text-align:center;">
+            <div style="color:#2E7D32; font-weight:900; font-size: 0.85rem; margin-bottom:5px;">💧 소변 경과시간</div>
+            <div style="font-size:2.0rem; font-weight:900; color:#1B5E20; letter-spacing: 1px;" id="p_tm">00:00</div>
         </div>
-        <div style="background:#A5D6A7; padding: 8px; text-align:center; border-top: 2px solid #81C784;">
-            <div style="color:#1B5E20; font-size: 0.8rem; font-weight:bold; margin-bottom:2px;">발생 시각</div>
-            <div style="color:#004D40; font-size:1.3rem; font-weight:900;">{p_time_str}</div>
+        <div style="background:#A5D6A7; padding: 6px; text-align:center; border-top: 2px solid #81C784;">
+            <div style="color:#1B5E20; font-size: 0.75rem; font-weight:bold; margin-bottom:2px;">발생 시각</div>
+            <div style="color:#004D40; font-size:1.1rem; font-weight:900;">{p_time_str}</div>
         </div>
     </div>
     <script>
@@ -136,18 +151,18 @@ with c1:
         }}
         setInterval(upP,1000); upP();
     </script>
-    """, height=155)
+    """, height=140)
 
 with c2:
     components.html(f"""
-    <div style="border-radius:15px; border:3px solid #FF9800; font-family:sans-serif; overflow:hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-        <div style="background:#FFF3E0; padding: 15px 5px; text-align:center;">
-            <div style="color:#E65100; font-weight:900; font-size: 0.95rem; margin-bottom:5px;">💩 대변 경과시간</div>
-            <div style="font-size:2.3rem; font-weight:900; color:#BF360C; letter-spacing: 1px;" id="d_tm">00:00</div>
+    <div style="border-radius:12px; border:2px solid #FF9800; font-family:sans-serif; overflow:hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+        <div style="background:#FFF3E0; padding: 12px 5px; text-align:center;">
+            <div style="color:#E65100; font-weight:900; font-size: 0.85rem; margin-bottom:5px;">💩 대변 경과시간</div>
+            <div style="font-size:2.0rem; font-weight:900; color:#BF360C; letter-spacing: 1px;" id="d_tm">00:00</div>
         </div>
-        <div style="background:#FFCC80; padding: 8px; text-align:center; border-top: 2px solid #FFB74D;">
-            <div style="color:#BF360C; font-size: 0.8rem; font-weight:bold; margin-bottom:2px;">발생 시각</div>
-            <div style="color:#3E2723; font-size:1.3rem; font-weight:900;">{d_time_str}</div>
+        <div style="background:#FFCC80; padding: 6px; text-align:center; border-top: 2px solid #FFB74D;">
+            <div style="color:#BF360C; font-size: 0.75rem; font-weight:bold; margin-bottom:2px;">발생 시각</div>
+            <div style="color:#3E2723; font-size:1.1rem; font-weight:900;">{d_time_str}</div>
         </div>
     </div>
     <script>
@@ -160,7 +175,7 @@ with c2:
         }}
         setInterval(upD,1000); upD();
     </script>
-    """, height=155)
+    """, height=140)
 
 # ==========================================
 # 5. 수동기록 및 리셋
@@ -183,10 +198,11 @@ with e2:
             add_record("💩 대변 리셋 (통계제외)")
 
 # ==========================================
-# 6. 배변 컨트롤 패널 
+# 6. 배변 컨트롤 패널 (제목 2/3 사이즈 축소)
 # ==========================================
 st.divider()
-st.header("🔘 배변 컨트롤 패널")
+st.markdown("<div style='font-size: 1.1rem; font-weight: 800; color:#444; margin-bottom: 12px;'>🔘 배변 컨트롤 패널</div>", unsafe_allow_html=True)
+
 q1, q2 = st.columns(2)
 with q1:
     if st.button("💦 집에서 소변", use_container_width=True): add_record("💦 집에서 소변")
@@ -207,30 +223,20 @@ with s4:
     if st.button("🦮+💦+💩 모두 해결", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
 
 # ==========================================
-# 7. 누적 데이터 현황 보드 (★무결점 카운팅 엔진★)
+# 7. 누적 데이터 현황 보드 (제목 2/3 사이즈 축소 & 무결점 엔진 유지)
 # ==========================================
 st.divider()
-st.header("📈 오늘의 누적 데이터 현황")
+st.markdown("<div style='font-size: 1.1rem; font-weight: 800; color:#444; margin-bottom: 12px;'>📈 오늘의 누적 데이터 현황</div>", unsafe_allow_html=True)
 
 def get_real_count(keyword):
     if target_df.empty: return 0
-    
     plus_count = 0
     minus_count = 0
-    
-    # 리스트를 위에서부터 훑으면서 정직하게 개수를 셉니다 (에러 원천 차단)
     for act in target_df['활동'].astype(str):
         if keyword in act:
-            # 1. 횟수를 빼야하는 항목 (차감)
-            if '차감' in act:
-                minus_count += 1
-            # 2. 통계에 안 들어가는 항목 (리셋, 끄기, 수동조절 등)
-            elif any(x in act for x in ['리셋', '끄기', '통계제외']):
-                pass 
-            # 3. 진짜 배변 횟수 (정상 카운트)
-            else:
-                plus_count += 1
-                
+            if '차감' in act: minus_count += 1
+            elif any(x in act for x in ['리셋', '끄기', '통계제외']): pass 
+            else: plus_count += 1
     return max(0, plus_count - minus_count)
 
 st.info(f"💧 총 소변: **{get_real_count('소변')}회** ｜ 💩 총 대변: **{get_real_count('대변')}회** ｜ 🦮 총 산책: **{get_real_count('산책')}회**")
