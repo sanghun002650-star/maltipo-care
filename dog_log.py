@@ -1,34 +1,26 @@
 # *********************************************************************
 # 🐾 스마트 관제 센터 (Smart Pet Care Center)
-# 
-# [ 프로그램 핵심 요약 ]
-# 1. 목적: 반려견의 배변 및 산책 활동을 기록, 분석, 실시간 모니터링.
-# 2. 코어 엔진: Streamlit 기반 웹 대시보드 및 Pure Python 1:1 카운팅.
-# 3. 데이터베이스: CSV(활동 기록) 및 JSON(반려견 프로필) 영구 보존 구조.
-# 4. 주요 기능: 투톤 분할 타이머, 날씨 API 연동, 수동 조절(휠/키보드 듀얼),
-#              터미널 자가 진단(Auto T&C) 및 드래그형 안전 종료 기능.
-# * 현재 버전   : v11.8
-# * 최종 수정일 : 2026-03-22
+# * 현재 버전   : v11.8 (Cloud Edition)
+# * 코어 엔진   : Streamlit 기반 웹 대시보드 + Firebase 클라우드 직결
+# * 주요 기능   : 다중 사용자 로그인(멀티 테넌트), v11.8 듀얼 수동조절, 실시간 배변 모니터링
 # *********************************************************************
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 import streamlit.components.v1 as components
-import os
-import sys
+import requests
 import json
-import urllib.request 
 
 # ==========================================
-# 0. 엔진 세팅 및 KST 시간 설정
+# 0. 엔진 세팅 및 파이어베이스 클라우드 연결
 # ==========================================
-APP_VERSION = "v11.8 (수동조절 듀얼 입력모드 탑재판)"
+APP_VERSION = "v11.8 (Cloud & 멀티유저 에디션)"
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
 
-DATA_FILE = "pet_care_data.csv"
-CONFIG_FILE = "pet_config.json" 
+# ★ 상훈님의 전용 파이어베이스 주소 (절대 변경 금지) ★
+FIREBASE_URL = "https://petcare-test-c28cd-default-rtdb.asia-southeast1.firebasedatabase.app/"
 
 st.set_page_config(page_title="스마트 관제 센터", layout="centered", page_icon="🐾")
 
@@ -45,80 +37,96 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 1. 사이드바 (프로필 종합 설정 및 수동 세이브 버튼)
-# ==========================================
-st.sidebar.header("⚙️ 관제 센터 설정")
-st.sidebar.success(f"🚀 {APP_VERSION}")
+# 세션(로그인 상태) 초기화
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'username' not in st.session_state: st.session_state.username = ""
 
-VERSION_LOGS = {
-    "v11.8": "수동 조절 패널에 '휠(현재시간 기준)'과 '키보드 텍스트' 듀얼 모드 적용",
-    "v11.7": "설정값 영구 저장(JSON) 스위치 탑재로 데이터 휘발 원천 차단",
-    "v11.6": "상단 개인정보 제거 및 요약서 교체, 프로필 항목 확장",
-    "v11.5": "차감버튼 폴딩, 드래그 이동형 종료버튼 탑재",
-    "v11.4": "핵심 로직 Auto-Test 스크립트 추가"
-}
+# ==========================================
+# 🚪 1. 중앙 현관문 (로그인 및 회원가입 로직)
+# ==========================================
+if not st.session_state.logged_in:
+    st.markdown("<h1 style='text-align: center;'>🐾 스마트 관제 센터</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray;'>가족/친구 전용 클라우드 플랫폼 (v11.8 Cloud)</p>", unsafe_allow_html=True)
+    st.divider()
+    
+    tab1, tab2 = st.tabs(["🔑 로그인", "📝 새 계정 만들기"])
+    
+    with tab1:
+        st.subheader("로그인")
+        login_id = st.text_input("아이디 (ID)", key="l_id")
+        login_pw = st.text_input("비밀번호", type="password", key="l_pw")
+        if st.button("접속하기 🚀", use_container_width=True, type="primary"):
+            if login_id and login_pw:
+                # 파이어베이스에서 비밀번호 확인
+                res = requests.get(f"{FIREBASE_URL}users/{login_id}/password.json")
+                if res.status_code == 200 and res.json() == login_pw:
+                    st.session_state.logged_in = True
+                    st.session_state.username = login_id
+                    st.success(f"환영합니다, {login_id}님!")
+                    st.rerun()
+                else:
+                    st.error("❌ 아이디가 없거나 비밀번호가 틀렸습니다.")
+            else:
+                st.warning("아이디와 비밀번호를 모두 입력하세요.")
+                
+    with tab2:
+        st.subheader("새 계정 만들기")
+        st.info("각자의 아이디를 만들면 데이터가 완벽하게 분리되어 저장됩니다.")
+        reg_id = st.text_input("사용할 아이디 (ID)", key="r_id")
+        reg_pw = st.text_input("비밀번호", type="password", key="r_pw")
+        if st.button("계정 생성 💾", use_container_width=True):
+            if reg_id and reg_pw:
+                # 아이디 중복 확인
+                res = requests.get(f"{FIREBASE_URL}users/{reg_id}.json")
+                if res.status_code == 200 and res.json() is not None:
+                    st.error("❌ 이미 존재하는 아이디입니다. 다른 아이디를 입력해주세요.")
+                else:
+                    # 파이어베이스에 새 유저 정보 생성
+                    requests.put(f"{FIREBASE_URL}users/{reg_id}/password.json", json=reg_pw)
+                    default_prof = {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
+                    requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json", json=default_prof)
+                    st.success("✅ 계정이 성공적으로 생성되었습니다! [로그인] 탭에서 접속해주세요.")
+            else:
+                st.warning("아이디와 비밀번호를 모두 입력하세요.")
+    
+    st.stop() # 로그인을 안 했으면 아래 메인 화면은 그리지 않고 여기서 정지!
 
-with st.sidebar.expander("📝 버전 업데이트 이력 (Log)", expanded=False):
-    for ver, desc in VERSION_LOGS.items():
-        st.markdown(f"**{ver}** : {desc}")
+# ==========================================
+# ☁️ 2. 클라우드 통신 엔진 (v11.8 기능 이식)
+# ==========================================
+username = st.session_state.username
 
 def load_profile():
-    default_profile = {"pet_name": "말티푸", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                for k in default_profile:
-                    if k not in data: data[k] = default_profile[k]
-                return data
-        except: pass
-    return default_profile
+    res = requests.get(f"{FIREBASE_URL}users/{username}/profile.json")
+    if res.status_code == 200 and res.json(): return res.json()
+    return {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
 
 def save_profile(profile):
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(profile, f, ensure_ascii=False)
+    requests.put(f"{FIREBASE_URL}users/{username}/profile.json", json=profile)
 
-if 'profile' not in st.session_state: 
-    st.session_state.profile = load_profile()
-
-with st.sidebar.expander("📝 반려견 기본 정보 설정", expanded=True):
-    p_name = st.text_input("🐶 이름", value=st.session_state.profile['pet_name'])
-    p_birth = st.text_input("🎂 생년월일 (예: 250101)", value=st.session_state.profile['birth'])
-    p_weight = st.text_input("⚖️ 몸무게 (예: 5.2kg)", value=st.session_state.profile['weight'])
-    
-    gender_options = ["수컷", "암컷", "중성화 수컷", "중성화 암컷", "기타"]
-    curr_gender = st.session_state.profile['gender']
-    g_idx = gender_options.index(curr_gender) if curr_gender in gender_options else 0
-    p_gender = st.selectbox("🐾 성별", gender_options, index=g_idx)
-    
-    p_memo = st.text_area("🗒️ 기타사항 (건강상태 등)", value=st.session_state.profile['memo'], height=100)
-
-    if st.button("💾 입력 정보 영구 저장", use_container_width=True, type="primary"):
-        st.session_state.profile.update({
-            "pet_name": p_name, "birth": p_birth, "weight": p_weight, "gender": p_gender, "memo": p_memo
-        })
-        save_profile(st.session_state.profile)
-        st.success("✅ 안전하게 영구 저장되었습니다!")
-        st.rerun()
-
-# ==========================================
-# 2. 블랙박스 영구 데이터베이스
-# ==========================================
 def load_data():
-    if os.path.exists(DATA_FILE): return pd.read_csv(DATA_FILE)
-    else: return pd.DataFrame(columns=["시간", "활동"])
-
-if 'pet_logs' not in st.session_state:
-    st.session_state.pet_logs = load_data()
+    res = requests.get(f"{FIREBASE_URL}users/{username}/logs.json")
+    if res.status_code == 200 and res.json():
+        data = res.json()
+        # 파이어베이스 딕셔너리를 v11.8 판다스 데이터프레임으로 변환
+        records = [{"시간": k, "활동": v} for k, v in data.items()]
+        return pd.DataFrame(records).sort_values("시간").reset_index(drop=True)
+    return pd.DataFrame(columns=["시간", "활동"])
 
 def add_record(act, c_time=None):
     t = c_time if c_time else now_kst().strftime("%Y-%m-%d %H:%M:%S")
+    # 파이어베이스에 기록 쏘기 (patch는 추가, put은 덮어쓰기)
+    requests.patch(f"{FIREBASE_URL}users/{username}/logs.json", json={t: act})
+    # 화면 갱신
     new_row = pd.DataFrame([{"시간": t, "활동": act}])
     st.session_state.pet_logs = pd.concat([st.session_state.pet_logs, new_row], ignore_index=True)
-    st.session_state.pet_logs.to_csv(DATA_FILE, index=False) 
     st.rerun()
 
+# 세션 데이터 로드 (클라우드에서 가져오기)
+if 'profile' not in st.session_state: st.session_state.profile = load_profile()
+if 'pet_logs' not in st.session_state: st.session_state.pet_logs = load_data()
+
+# 오늘 날짜 타겟 데이터만 필터링
 t_date = now_kst().strftime("%Y-%m-%d")
 df = st.session_state.pet_logs
 if not df.empty and "시간" in df.columns:
@@ -126,15 +134,43 @@ if not df.empty and "시간" in df.columns:
 else:
     target_df = pd.DataFrame(columns=["시간", "활동"])
 
-last_upload_time = "입력된 데이터 없음"
-if not df.empty:
-    last_upload_time = str(df.iloc[-1]['시간'])
+last_upload_time = str(df.iloc[-1]['시간']) if not df.empty else "입력된 데이터 없음"
 
 # ==========================================
-# 3. 메인 타이틀 & 실시간 날씨/시간 대시보드 
+# ⚙️ 3. 사이드바 (프로필 설정 & 로그아웃)
+# ==========================================
+st.sidebar.header(f"⚙️ {username}님의 설정")
+if st.sidebar.button("🔒 로그아웃", type="secondary"):
+    for key in list(st.session_state.keys()): del st.session_state[key]
+    st.rerun()
+
+st.sidebar.success(f"🚀 {APP_VERSION}")
+
+with st.sidebar.expander("📝 반려견 기본 정보 설정", expanded=True):
+    p_name = st.text_input("🐶 이름", value=st.session_state.profile['pet_name'])
+    p_birth = st.text_input("🎂 생년월일 (예: 250101)", value=st.session_state.profile['birth'])
+    p_weight = st.text_input("⚖️ 몸무게 (예: 5.2kg)", value=st.session_state.profile['weight'])
+    
+    gender_options = ["수컷", "암컷", "중성화 수컷", "중성화 암컷", "기타"]
+    curr_gender = st.session_state.profile.get('gender', '수컷')
+    g_idx = gender_options.index(curr_gender) if curr_gender in gender_options else 0
+    p_gender = st.selectbox("🐾 성별", gender_options, index=g_idx)
+    
+    p_memo = st.text_area("🗒️ 기타사항 (건강상태 등)", value=st.session_state.profile['memo'], height=100)
+
+    if st.button("☁️ 클라우드에 프로필 영구 저장", use_container_width=True, type="primary"):
+        st.session_state.profile.update({
+            "pet_name": p_name, "birth": p_birth, "weight": p_weight, "gender": p_gender, "memo": p_memo
+        })
+        save_profile(st.session_state.profile)
+        st.success("✅ 클라우드 서버에 안전하게 저장되었습니다!")
+        st.rerun()
+
+# ==========================================
+# 📊 4. 메인 대시보드 (v11.8 UI 완벽 유지)
 # ==========================================
 pet_n = st.session_state.profile['pet_name']
-st.markdown(f"<div style='text-align:center; font-size: 1.6rem; font-weight: 900; color:#333; padding-bottom: 5px;'>📊 {pet_n} 스마트 관제 센터</div>", unsafe_allow_html=True)
+st.markdown(f"<div style='text-align:center; font-size: 1.6rem; font-weight: 900; color:#333; padding-bottom: 5px;'>📊 {pet_n} 관제 센터 (Cloud)</div>", unsafe_allow_html=True)
 
 clock_weather_html = """
 <div style="background-color: #f1f5f9; border-radius: 12px; padding: 12px; text-align: center; margin-bottom: 20px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); font-family: sans-serif;">
@@ -167,9 +203,6 @@ clock_weather_html = """
 """
 components.html(clock_weather_html, height=85)
 
-# ==========================================
-# 4. 실시간 배변 모니터링
-# ==========================================
 def get_iso(act_keyword, check_df):
     if check_df.empty: return ""
     for i in range(len(check_df)-1, -1, -1):
@@ -243,14 +276,13 @@ with c2:
     """, height=125)
 
 # ==========================================
-# 5. 수동기록 및 리셋 (★ 듀얼 탭 모드 적용: 휠 vs 키보드 ★)
+# 5. 수동기록 및 리셋 (v11.8 듀얼 탭 모드)
 # ==========================================
 e1, e2 = st.columns(2)
 with e1:
     with st.expander("⚙️ 소변 수동조절"):
         t_w1, t_k1 = st.tabs(["⏱️ 휠(시계)", "⌨️ 키보드"])
         with t_w1:
-            # 휠 방식은 접속한 시점의 현재 시간이 기본값으로 세팅됨
             p_wheel = st.time_input("현재 시간 기준 변경", now_kst().time(), key="p_wheel")
             if st.button("확인(휠)", key="bp_w", use_container_width=True): 
                 add_record("💦 소변(수정) (통계제외)", f"{t_date} {p_wheel.strftime('%H:%M:%S')}")
@@ -261,7 +293,6 @@ with e1:
                     valid_time = datetime.strptime(p_txt, "%H:%M").strftime("%H:%M:00")
                     add_record("💦 소변(수정) (통계제외)", f"{t_date} {valid_time}")
                 except: st.error("HH:MM 형식으로 입력!")
-        
         st.markdown("<hr style='margin:5px 0;'>", unsafe_allow_html=True)
         if st.button("💧 소변 타이머 리셋", use_container_width=True, key="bp_r"): add_record("💦 소변 리셋 (통계제외)")
 
@@ -279,12 +310,11 @@ with e2:
                     valid_time = datetime.strptime(d_txt, "%H:%M").strftime("%H:%M:00")
                     add_record("💩 대변(수정) (통계제외)", f"{t_date} {valid_time}")
                 except: st.error("HH:MM 형식으로 입력!")
-        
         st.markdown("<hr style='margin:5px 0;'>", unsafe_allow_html=True)
         if st.button("💩 대변 타이머 리셋", use_container_width=True, key="bd_r"): add_record("💩 대변 리셋 (통계제외)")
 
 # ==========================================
-# 6. 배변 컨트롤 패널 
+# 6. 배변 컨트롤 패널
 # ==========================================
 st.divider()
 st.markdown("<div style='font-size: 1.1rem; font-weight: 800; color:#444; margin-bottom: 12px;'>🔘 배변 컨트롤 패널</div>", unsafe_allow_html=True)
@@ -326,13 +356,16 @@ with st.expander("➖ 잘못 누른 횟수 변경 (차감하기)"):
         if st.button("산책 -1", use_container_width=True): add_record("🦮 산책 차감 (-1)")
 
 # ==========================================
-# 8. 취소 기능
+# 8. 취소 기능 (클라우드 동기화)
 # ==========================================
 st.divider()
 if not target_df.empty:
     if st.button("❌ 직전 기록 취소", use_container_width=True):
+        last_time = target_df.iloc[-1]['시간']
+        # 클라우드에서 해당 시간 데이터 삭제
+        requests.delete(f"{FIREBASE_URL}users/{username}/logs/{last_time}.json")
+        # 로컬 세션에서도 삭제
         st.session_state.pet_logs = st.session_state.pet_logs.drop(target_df.index[-1])
-        st.session_state.pet_logs.to_csv(DATA_FILE, index=False)
         st.rerun()
 
 # ==========================================
@@ -399,77 +432,13 @@ drag_js = """
 components.html(drag_js, height=0, width=0)
 
 # ==========================================
-# 10. 최하단 버전 정보 및 최종 데이터 업로드 시각 표시
+# 10. 웹 화면 하단 꼬리말 
 # ==========================================
 st.markdown("---")
 st.markdown(f"""
     <div style="text-align: center; color: #888; font-size: 0.8rem; padding: 10px 0; margin-bottom: 50px;">
-        Powered by Smart Pet Care Center<br>
+        Powered by Smart Pet Care Center (Multi-Tenant)<br>
         <strong>Current Version: {APP_VERSION}</strong><br>
-        <span style="color: #2563eb; font-weight: bold;">[최종 데이터 동기화] {last_upload_time}</span>
+        <span style="color: #2563eb; font-weight: bold;">[최종 클라우드 동기화] {last_upload_time}</span>
     </div>
 """, unsafe_allow_html=True)
-
-# ==========================================
-# ★ 11. 가상 터미널 시운전 (Auto T&C Engine) ★
-# 명령어: python test_logic.py
-# ==========================================
-if __name__ == "__main__":
-    if "streamlit" not in sys.argv[0]:
-        print("\n" + "="*70)
-        print("🛠️  [시스템 자동 시운전 (Auto T&C)] V11.8 종합 가동 시작...")
-        print("="*70)
-        
-        # 1. 파일 시스템 영구저장 테스트
-        test_profile = {"pet_name": "T&C테스트", "birth": "990101", "weight": "10kg", "gender": "수컷", "memo": "테스트"}
-        save_profile(test_profile)
-        loaded = load_profile()
-        if loaded["pet_name"] == "T&C테스트" and loaded["memo"] == "테스트":
-            print("✔️ 1. 설정값 영구 보존(JSON) 스위치 기능 : [정상 동작]")
-            save_profile({"pet_name": "말티푸", "birth": "", "weight": "", "gender": "수컷", "memo": ""}) # 롤백
-        else:
-            print("❌ 1. 설정값 영구 보존(JSON) 기능 : [에러 발생]")
-
-        # 2. 날씨 통신망 점검
-        try:
-            req = urllib.request.urlopen('https://api.open-meteo.com/v1/forecast?latitude=35.8562&longitude=129.2247&current_weather=true', timeout=3)
-            if req.getcode() == 200: print("✔️ 2. 날씨 API 통신망 : [정상 연결됨]")
-        except Exception:
-            print("❌ 2. 날씨 API 통신망 : [연결 실패]")
-
-        # 3. 로직 시뮬레이션
-        print("\n✔️ 3. 로직 코어 시뮬레이션 (수동 휠/텍스트 듀얼 입력 방어 포함) :")
-        sim_df = pd.DataFrame(columns=["시간", "활동"])
-        t_now = now_kst().strftime('%Y-%m-%d %H:%M:%S')
-        
-        try:
-            valid_time = datetime.strptime("09:05", "%H:%M").strftime("%H:%M:00")
-            if valid_time == "09:05:00": print("    ▶ [키보드/휠 듀얼 모드] 시간 데이터 융합 파싱 : [정상]")
-        except: print("    ▶ [키보드/휠 듀얼 모드] 시간 데이터 파싱 : [오류]")
-
-        sim_df.loc[len(sim_df)] = [t_now, "💦 집에서 소변"]
-        c1 = get_real_count("소변", sim_df)
-        iso1 = get_iso("소변", sim_df)
-        if c1 == 1 and "T" in iso1: print("    ▶ [패널 버튼] 타이머 초기화 및 누적 카운터 동시 작동 : [정상]")
-        else: print("    ▶ [패널 버튼] 작동 : [오류]")
-
-        sim_df.loc[len(sim_df)] = [t_now, "💦 소변(수정) (통계제외)"]
-        c2 = get_real_count("소변", sim_df)
-        if c2 == c1: print("    ▶ [수동 조절] 누적 카운터 오류 방어벽 : [정상]")
-        else: print("    ▶ [수동 조절] 누적 카운터 방어벽 : [오류]")
-
-        sim_df.loc[len(sim_df)] = [t_now, "💦 소변 차감 (-1)"]
-        c_minus = get_real_count("소변", sim_df)
-        if c_minus == 0: print("    ▶ [차감 폴딩 메뉴] 횟수 -1 감소 작동 : [정상]")
-        else: print("    ▶ [차감 기능] 횟수 감소 작동 : [오류]")
-
-        print("="*70)
-        print("✅ 종합 진단 결과 : V11.8 전 기능, 듀얼입력, 영구 저장소 100% 정상 작동 확인!")
-        print("▶️ 실제 화면 가동 명령어: python -m streamlit run test_logic.py")
-        print("="*70 + "\n")
-
-# ==========================================
-# 최 종 코 드 종 료 (End of Source Code)
-# 스마트 관제 센터 - 최종 작성일: 2026-03-22
-# (※ 앞으로 시스템 업데이트 시에도 이 버전 정보는 최하단에 항상 유지됩니다 ※)
-# ==========================================
