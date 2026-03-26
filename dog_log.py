@@ -1,6 +1,6 @@
 # *********************************************************************
 # 🐾 스마트 관제 센터 (Smart Pet Care Center)
-# * 현재 버전   : v11.9.5 (초고속 로그인 스피드 튜닝 & 자동로그인 완벽)
+# * 현재 버전   : v11.9.6 (로그아웃 완벽 초기화 & 유령 쿠키 원천 차단)
 # *********************************************************************
 
 import streamlit as st
@@ -14,7 +14,7 @@ import time
 # ==========================================
 # 0. 엔진 세팅 및 파이어베이스 클라우드 연결
 # ==========================================
-APP_VERSION = "v11.9.5 (초고속 로그인 패치)"
+APP_VERSION = "v11.9.6 (로그아웃 초기화 패치)"
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
 
@@ -39,20 +39,18 @@ st.markdown("""
 # --- 🍪 스마트키(쿠키) 매니저 가동 ---
 cookie_manager = stx.CookieManager(key="pet_cookie_manager")
 
+# 세션 초기화
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'username' not in st.session_state: st.session_state.username = ""
 if 'force_logout' not in st.session_state: st.session_state.force_logout = False
 
 # ==========================================
-# 🚪 1. 중앙 현관문 (6개월 자동 로그인)
+# 🚪 1. 중앙 현관문 (자동 로그인 및 차단막 검사)
 # ==========================================
 saved_user = cookie_manager.get(cookie="saved_username")
 
-if st.session_state.force_logout:
-    saved_user = None
-    st.session_state.force_logout = False
-
-if saved_user and not st.session_state.logged_in:
+# ★ 핵심 방어 로직: 로그아웃을 누른 상태라면 브라우저의 열쇠를 완벽히 무시합니다.
+if saved_user and not st.session_state.logged_in and not st.session_state.force_logout:
     st.session_state.logged_in = True
     st.session_state.username = saved_user
     st.rerun()
@@ -75,18 +73,17 @@ if not st.session_state.logged_in:
                 res = requests.get(f"{FIREBASE_URL}users/{login_id}/password.json")
                 if res.status_code == 200 and res.json() == login_pw:
                     
-                    # 1. 폰 주머니에 열쇠 굽기
                     if auto_login:
                         expire_date = datetime.now() + timedelta(days=180)
                         cookie_manager.set("saved_username", login_id, expires_at=expire_date)
                     else:
-                        cookie_manager.set("saved_username", login_id)
+                        cookie_manager.delete("saved_username")
                     
-                    # 2. 로그인 상태 온(ON)
+                    # 직접 로그인을 했으므로 서버 차단막 해제!
+                    st.session_state.force_logout = False 
                     st.session_state.logged_in = True
                     st.session_state.username = login_id
                     
-                    # 3. ★ 핵심 튜닝: 메시지 없이 0.3초 찰나의 시간만 대기 후 즉시 화면 전환!
                     time.sleep(0.3) 
                     st.rerun()
                 else:
@@ -158,9 +155,17 @@ st.sidebar.header(f"⚙️ {username}님의 설정")
 
 if st.sidebar.button("🔒 로그아웃 (다른 계정 접속)", type="secondary"):
     cookie_manager.delete("saved_username")
-    time.sleep(0.3) # 로그아웃도 0.3초 초고속 처리
-    for key in list(st.session_state.keys()): del st.session_state[key]
+    
+    # ★ 서버 차단막 가동 및 메모리 초기화
     st.session_state.force_logout = True
+    st.session_state.logged_in = False
+    st.session_state.username = ""
+    
+    # 이전 사용자의 데이터를 지워줍니다
+    if 'pet_logs' in st.session_state: del st.session_state['pet_logs']
+    if 'profile' in st.session_state: del st.session_state['profile']
+    
+    time.sleep(0.3)
     st.rerun()
 
 st.sidebar.success(f"🚀 {APP_VERSION}")
