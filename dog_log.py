@@ -1,7 +1,7 @@
 # *********************************************************************
 # 🐾 스마트 관제 센터 (Smart Pet Care Center)
-# * 현재 버전   : v11.9 (Cloud & Auto-Login Edition)
-# * 코어 엔진   : Streamlit + Firebase + CookieManager(자동로그인)
+# * 현재 버전   : v11.9 (Cloud & 6개월 자동 로그인 마스터 에디션)
+# * 코어 엔진   : Streamlit + Firebase + CookieManager (180일 유지)
 # *********************************************************************
 
 import streamlit as st
@@ -14,47 +14,50 @@ import extra_streamlit_components as stx
 # ==========================================
 # 0. 엔진 세팅 및 파이어베이스 클라우드 연결
 # ==========================================
-APP_VERSION = "v11.9 (Cloud & Auto-Login)"
+APP_VERSION = "v11.9 (Cloud & 6개월 자동로그인)"
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
 
 # ★ 상훈님의 전용 파이어베이스 주소 ★
 FIREBASE_URL = "https://petcare-test-c28cd-default-rtdb.asia-southeast1.firebasedatabase.app/"
 
+# 스마트폰 화면에 딱 맞게 꽉 차는 레이아웃 설정
 st.set_page_config(page_title="스마트 관제 센터", layout="centered", page_icon="🐾")
 
+# 모바일(스마트폰) 전용 터치 최적화 디자인 (CSS)
 st.markdown("""
 <style>
+    /* 스마트폰에서 버튼을 누르기 쉽게 큼직하게 만듭니다 */
+    div.stButton > button { height: 3.8rem !important; border-radius: 12px !important; font-weight: 800 !important; font-size: 1.1rem !important; }
+    
+    /* 스마트폰 화면이 좁아질 때 버튼들이 예쁘게 두 줄로 배열되게 합니다 */
     @media (max-width: 768px) {
-        div[data-testid="stHorizontalBlock"] { flex-direction: row !important; flex-wrap: wrap !important; gap: 5px !important; }
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] { flex: 1 1 48% !important; min-width: 48% !important; }
+        div[data-testid="stHorizontalBlock"] { flex-direction: row !important; flex-wrap: wrap !important; gap: 8px !important; }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] { flex: 1 1 47% !important; min-width: 47% !important; }
     }
-    div.stButton > button { height: 3.5rem !important; border-radius: 12px !important; font-weight: 800 !important; }
+    
+    /* 숫자 현황판 디자인 */
     div[data-testid="metric-container"] { background-color: #ffffff; border: 2px solid #e2e8f0; border-radius: 12px; padding: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; }
     div[data-testid="metric-container"] label { font-size: 1.1rem !important; font-weight: bold !important; color: #475569 !important; }
     div[data-testid="metric-container"] div { font-size: 2.2rem !important; font-weight: 900 !important; color: #0f172a !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 🍪 쿠키 매니저 (자동 로그인 엔진) 가동 ---
-@st.cache_resource(experimental_allow_widgets=True)
-def get_cookie_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_cookie_manager()
+# --- 🍪 스마트키(쿠키) 매니저 가동 ---
+cookie_manager = stx.CookieManager(key="pet_cookie_manager")
 
 # 세션(로그인 상태) 초기화
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'username' not in st.session_state: st.session_state.username = ""
 
 # ==========================================
-# 🚪 1. 중앙 현관문 (자동 로그인 및 회원가입)
+# 🚪 1. 중앙 현관문 (6개월 자동 로그인)
 # ==========================================
-# 앱을 켜자마자 스마트폰 주머니(쿠키)에서 저장된 ID가 있는지 뒤져봅니다.
+# 스마트폰 주머니를 뒤져서 ID가 있는지 확인합니다.
 saved_user = cookie_manager.get(cookie="saved_username")
 
 if saved_user and not st.session_state.logged_in:
-    # 쿠키에 아이디가 있으면, 로그인 창을 건너뛰고 바로 프리패스!
+    # 키가 있으면 도어락 패스!
     st.session_state.logged_in = True
     st.session_state.username = saved_user
     st.rerun()
@@ -71,16 +74,16 @@ if not st.session_state.logged_in:
         login_id = st.text_input("아이디 (ID)", key="l_id")
         login_pw = st.text_input("비밀번호", type="password", key="l_pw")
         
-        # 자동 로그인 체크박스 추가!
-        auto_login = st.checkbox("☑️ 로그인 상태 유지 (30일간)", value=True)
+        # ★ 6개월(180일) 자동 로그인 옵션 적용 ★
+        auto_login = st.checkbox("☑️ 로그인 상태 유지 (6개월)", value=True)
         
         if st.button("접속하기 🚀", use_container_width=True, type="primary"):
             if login_id and login_pw:
                 res = requests.get(f"{FIREBASE_URL}users/{login_id}/password.json")
                 if res.status_code == 200 and res.json() == login_pw:
-                    # 로그인 성공 시, 체크박스에 체크되어 있으면 쿠키에 아이디 저장!
+                    # 스마트폰 주머니에 180일(6개월) 동안 썩지 않게 보관!
                     if auto_login:
-                        cookie_manager.set("saved_username", login_id, expires_at=datetime.now() + timedelta(days=30))
+                        cookie_manager.set("saved_username", login_id, expires_at=datetime.now() + timedelta(days=180))
                     
                     st.session_state.logged_in = True
                     st.session_state.username = login_id
@@ -108,10 +111,10 @@ if not st.session_state.logged_in:
             else:
                 st.warning("아이디와 비밀번호를 모두 입력하세요.")
     
-    st.stop() # 로그인을 안 했으면 여기서 화면 멈춤!
+    st.stop()
 
 # ==========================================
-# ☁️ 2. 클라우드 통신 엔진 
+# ☁️ 2. 클라우드 통신 엔진 (파이어베이스 연동)
 # ==========================================
 username = st.session_state.username
 
@@ -150,11 +153,11 @@ else:
 last_upload_time = str(df.iloc[-1]['시간']) if not df.empty else "입력된 데이터 없음"
 
 # ==========================================
-# ⚙️ 3. 사이드바 (프로필 & 안전 로그아웃)
+# ⚙️ 3. 사이드바 (프로필 및 안전 로그아웃)
 # ==========================================
 st.sidebar.header(f"⚙️ {username}님의 설정")
 
-# 🚨 로그아웃 시 쿠키(비밀 주머니)도 같이 비워줍니다!
+# 🚨 로그아웃 시 6개월짜리 쿠키도 완벽하게 파기합니다.
 if st.sidebar.button("🔒 로그아웃 (다른 계정 접속)", type="secondary"):
     cookie_manager.delete("saved_username")
     for key in list(st.session_state.keys()): del st.session_state[key]
@@ -175,7 +178,7 @@ with st.sidebar.expander("📝 반려견 기본 정보 설정", expanded=False):
     if st.button("☁️ 클라우드 저장", use_container_width=True, type="primary"):
         st.session_state.profile.update({"pet_name": p_name, "birth": p_birth, "weight": p_weight, "gender": p_gender, "memo": p_memo})
         save_profile(st.session_state.profile)
-        st.success("✅ 클라우드에 저장되었습니다!")
+        st.success("✅ 클라우드에 안전하게 영구 저장되었습니다!")
         st.rerun()
 
 # ==========================================
@@ -368,7 +371,7 @@ with st.expander("➖ 잘못 누른 횟수 변경 (차감하기)"):
         if st.button("산책 -1", use_container_width=True): add_record("🦮 산책 차감 (-1)")
 
 # ==========================================
-# 8. 취소 및 꼬리말
+# 8. 취소 및 꼬리말 (버전 정보 강조)
 # ==========================================
 st.divider()
 if not target_df.empty:
@@ -379,10 +382,11 @@ if not target_df.empty:
         st.rerun()
 
 st.markdown("---")
+# 맨 아래에서 언제든지 버전을 확인할 수 있도록 강조 처리했습니다.
 st.markdown(f"""
-    <div style="text-align: center; color: #888; font-size: 0.8rem; padding: 10px 0; margin-bottom: 50px;">
-        Powered by Smart Pet Care Center<br>
-        <strong>Current Version: {APP_VERSION}</strong><br>
-        <span style="color: #2563eb; font-weight: bold;">[최종 동기화] {last_upload_time}</span>
+    <div style="text-align: center; background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 50px;">
+        <span style="color: #64748b; font-size: 0.85rem;">Powered by Smart Pet Care Center</span><br>
+        <span style="color: #0f172a; font-size: 1.1rem; font-weight: 900;">⭐ {APP_VERSION} ⭐</span><br>
+        <span style="color: #2563eb; font-weight: bold; font-size: 0.85rem;">[마지막 클라우드 저장] {last_upload_time}</span>
     </div>
 """, unsafe_allow_html=True)
