@@ -9,7 +9,7 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.1.0"
+APP_VERSION = "v13.2.0"
 UPDATE_DATE = "2026-03-30"  # 🚀 버전 업데이트 시 이 두 변수만 수정하세요!
 
 KST = timezone(timedelta(hours=9))
@@ -80,10 +80,9 @@ if not st.session_state.logged_in:
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/password.json", json=reg_pw, timeout=5)
                         default_prof = {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json", json=default_prof, timeout=5)
-                        # 초기 설정값 생성
                         default_settings = {
                             "btn_h": 4.2, "hdr_color": "#94a3b8",
-                            "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "식사건강":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9}
+                            "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9}
                         }
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/settings.json", json=default_settings, timeout=5)
                         st.success("✅ 계정 생성 완료! 로그인 탭에서 접속하세요.")
@@ -112,15 +111,17 @@ def load_profile():
 def load_settings():
     default_settings = {
         "btn_h": 4.2, "hdr_color": "#94a3b8",
-        "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "식사건강":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9}
+        "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9}
     }
     try:
         res = requests.get(f"{FIREBASE_URL}users/{username}/settings.json", timeout=5)
         if res.status_code == 200 and res.json():
             loaded = res.json()
-            # 누락된 키 보정
             for k in default_settings:
                 if k not in loaded: loaded[k] = default_settings[k]
+            # 기존 '식사건강' 키를 가진 사용자를 위해 호환성 유지
+            if "식사건강" in loaded.get("order", {}):
+                loaded["order"]["건강미용"] = loaded["order"].pop("식사건강")
             return loaded
     except: pass
     return default_settings
@@ -163,8 +164,16 @@ DYNAMIC_HDR_COLOR = st.session_state.settings.get("hdr_color", "#94a3b8")
 
 st.markdown(f"""
 <style>
-.block-container {{ padding: 0.5rem 0.75rem 6rem 0.75rem !important; max-width: 480px !important; }}
+.block-container {{ padding: 0.5rem 0.75rem 6rem 0.75rem !important; max-width: 500px !important; }}
 ::-webkit-scrollbar {{ width: 0px; }}
+
+/* 확장된 헤더 스타일 */
+.header-card {{
+    display:flex; justify-content:space-between; align-items:center; 
+    background:linear-gradient(135deg,#667eea,#764ba2); 
+    border-radius:18px; padding:18px 20px; margin-bottom:15px; color:white;
+    min-height: 85px; line-height: 1.4; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}}
 
 div.stButton > button {{
     height: {DYNAMIC_BTN_H}rem !important;
@@ -190,9 +199,18 @@ div[data-testid="metric-container"] div[data-testid="stMetricValue"] > div {{ fo
 }}
 
 .section-header {{
-    font-size: 0.8rem; font-weight: 800; color: {DYNAMIC_HDR_COLOR};
-    letter-spacing: 1.5px; text-transform: uppercase; margin: 18px 0 8px 2px;
+    font-size: 0.85rem; font-weight: 800; color: {DYNAMIC_HDR_COLOR};
+    letter-spacing: 1.5px; text-transform: uppercase; margin: 20px 0 10px 2px;
 }}
+
+/* 건강 미용 섹션 특화 디자인 */
+.health-row {{
+    display: flex; justify-content: space-between; align-items: center;
+    background: #f8fafc; padding: 10px 15px; border-radius: 12px; margin-bottom: 8px;
+    border: 1px solid #e2e8f0;
+}}
+.last-date {{ font-size: 0.75rem; color: #64748b; font-weight: 600; }}
+
 .stTabs [data-baseweb="tab"] {{ height: 2.6rem !important; font-weight: 700 !important; }}
 .stTabs [data-baseweb="tab-list"] {{ gap: 2px !important; }}
 hr {{ margin: 12px 0 !important; }}
@@ -282,6 +300,13 @@ d_iso = get_iso("대변", target_df)
 p_time_str = p_iso[11:16] if p_iso else "--:--"
 d_time_str = d_iso[11:16] if d_iso else "--:--"
 
+# 마지막 날짜 추출 함수 (건강/미용용)
+def get_last_date(keyword):
+    if df.empty: return "기록 없음"
+    matches = df[df['활동'].str.contains(keyword, na=False)]
+    if matches.empty: return "기록 없음"
+    return matches.iloc[-1]['시간'][:10]
+
 # ==========================================
 # 🧱 UI 컴포넌트 모듈 (CDUI 렌더링용)
 # ==========================================
@@ -308,11 +333,10 @@ def render_timer():
 
 def render_summary():
     st.markdown("<div class='section-header'>📈 오늘의 누적 데이터 현황</div>", unsafe_allow_html=True)
-    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1, mc2, mc3 = st.columns(3)
     mc1.metric("💧 소변", f"{get_real_count('소변', target_df)}회")
     mc2.metric("💩 대변", f"{get_real_count('대변', target_df)}회")
     mc3.metric("🦮 산책", f"{get_real_count('산책', target_df)}회")
-    mc4.metric("🍚 식사", f"{get_real_count('식사', target_df)}회")
 
 def render_poo_pee():
     st.markdown("<div class='section-header'>🚨 배변 기록</div>", unsafe_allow_html=True)
@@ -335,17 +359,44 @@ def render_walk():
     with w4:
         if st.button("🦮+💧+💩\n모두 해결", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
 
-def render_food():
-    st.markdown("<div class='section-header'>🍽️ 식사 / 건강</div>", unsafe_allow_html=True)
-    f1, f2 = st.columns(2)
-    with f1:
-        if st.button("🍚 아침 식사", use_container_width=True): add_record("🍚 아침 식사")
-        if st.button("🍚 저녁 식사", use_container_width=True): add_record("🍚 저녁 식사")
-        if st.button("💊 약 복용", use_container_width=True): add_record("💊 약 복용")
-    with f2:
-        if st.button("🍚 점심 식사", use_container_width=True): add_record("🍚 점심 식사")
-        if st.button("🦴 간식 제공", use_container_width=True): add_record("🦴 간식 제공")
-        if st.button("💉 병원/미용", use_container_width=True): add_record("💉 병원/미용 방문")
+def render_health_beauty():
+    st.markdown("<div class='section-header'>🏥 건강 / 미용 관리</div>", unsafe_allow_html=True)
+    
+    # 마지막 날짜 파싱
+    last_med = get_last_date("💊")
+    last_hosp = get_last_date("💉")
+    last_groom = get_last_date("✂️")
+
+    with st.expander("✨ 상세 기록 관리 (약/병원/미용)", expanded=False):
+        # 고유 키 충돌 방지를 위해 현재 시분초 생성
+        current_time_str = now_kst().strftime("%H:%M:%S.%f")
+
+        # 1. 약 복용
+        st.markdown(f"<div class='health-row'><span>💊 약 복용 기록</span><span class='last-date'>최근: {last_med}</span></div>", unsafe_allow_html=True)
+        col1_1, col1_2 = st.columns([2, 1])
+        with col1_1:
+            d_med = st.date_input("복용 날짜", value=datetime.strptime(last_med, "%Y-%m-%d").date() if last_med != "기록 없음" else now_kst().date(), key="d_med")
+        with col1_2:
+            if st.button("기록💾", key="b_med", use_container_width=True):
+                add_record("💊 약 복용", f"{d_med} {current_time_str}")
+
+        # 2. 병원 방문
+        st.markdown(f"<div class='health-row'><span>💉 병원 방문 기록</span><span class='last-date'>최근: {last_hosp}</span></div>", unsafe_allow_html=True)
+        col2_1, col2_2 = st.columns([2, 1])
+        with col2_1:
+            d_hosp = st.date_input("방문 날짜", value=datetime.strptime(last_hosp, "%Y-%m-%d").date() if last_hosp != "기록 없음" else now_kst().date(), key="d_hosp")
+        with col2_2:
+            if st.button("기록💾", key="b_hosp", use_container_width=True):
+                add_record("💉 병원 방문", f"{d_hosp} {current_time_str}")
+
+        # 3. 미용/목욕
+        st.markdown(f"<div class='health-row'><span>✂️ 미용/목욕 기록</span><span class='last-date'>최근: {last_groom}</span></div>", unsafe_allow_html=True)
+        col3_1, col3_2 = st.columns([2, 1])
+        with col3_1:
+            d_groom = st.date_input("미용 날짜", value=datetime.strptime(last_groom, "%Y-%m-%d").date() if last_groom != "기록 없음" else now_kst().date(), key="d_groom")
+        with col3_2:
+            if st.button("기록💾", key="b_groom", use_container_width=True):
+                add_record("✂️ 미용 및 목욕", f"{d_groom} {current_time_str}")
 
 def render_manual():
     with st.expander("⚙️ 타이머 수동 조절 / 리셋"):
@@ -409,16 +460,16 @@ def render_stats():
 # ==========================================
 pet_n = st.session_state.profile.get('pet_name','강아지')
 
-# 상단 헤더 바
+# 상단 헤더 바 (디자인 개선)
 st.markdown(f"""
-<div style="display:flex; justify-content:space-between; align-items:center; background:linear-gradient(135deg,#667eea,#764ba2); border-radius:16px; padding:12px 16px; margin-bottom:12px; color:white;">
+<div class="header-card">
     <div>
-        <div style="font-size:1.3rem; font-weight:900;">🐾 {pet_n}</div>
-        <div style="font-size:0.75rem; opacity:0.85; margin-top:1px;">{now_kst().strftime("%m월 %d일 (%a) %H:%M")}</div>
+        <div style="font-size:1.4rem; font-weight:900;">🐾 {pet_n} 센터</div>
+        <div style="font-size:0.8rem; opacity:0.9; margin-top:2px;">{now_kst().strftime("%m월 %d일 (%a) %H:%M")}</div>
     </div>
-    <div style="text-align:right; font-size:0.7rem; opacity:0.8;">
+    <div style="text-align:right; font-size:0.75rem; opacity:0.8;">
         <div>☁️ {last_upload_time[5:19] if last_upload_time != '없음' else '없음'}</div>
-        <div style="margin-top:2px;">{APP_VERSION} ({UPDATE_DATE[5:]})</div>
+        <div style="margin-top:4px;">{APP_VERSION} ({UPDATE_DATE[5:]})</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -432,7 +483,7 @@ for mod_name, _ in sorted_modules:
     elif mod_name == "누적데이터": render_summary()
     elif mod_name == "배변기록": render_poo_pee()
     elif mod_name == "산책기록": render_walk()
-    elif mod_name == "식사건강": render_food()
+    elif mod_name in ["건강미용", "식사건강"]: render_health_beauty()
     elif mod_name == "수동조절": render_manual()
     elif mod_name == "기록차감": render_deduct()
     elif mod_name == "활동로그": render_log()
@@ -463,3 +514,5 @@ st.markdown(f"""
     ☁️ CDUI Render Engine Active
 </div>
 """, unsafe_allow_html=True)
+
+# END
