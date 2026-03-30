@@ -9,14 +9,13 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.3.0"
+APP_VERSION = "v13.4.0 (Stable & Bug Fix)"
 UPDATE_DATE = "2026-03-30"  # 🚀 버전 업데이트 시 이 두 변수만 수정하세요!
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
 FIREBASE_URL = "https://petcare-test-c28cd-default-rtdb.asia-southeast1.firebasedatabase.app/"
 
-# initial_sidebar_state="collapsed"를 통해 앱 실행 시 무조건 사이드바를 닫아둡니다.
 st.set_page_config(page_title="🐾 관제 센터", layout="centered", page_icon="🐾", initial_sidebar_state="collapsed")
 
 # --- 쿠키 매니저 ---
@@ -38,7 +37,7 @@ if not st.session_state.logged_in:
     st.markdown("""
     <div style='text-align:center; padding: 30px 0 10px;'>
         <div style='font-size:3.5rem;'>🐾</div>
-        <div style='font-size:1.5rem; font-weight:900; color:#1e293b; margin-top:8px;'>스마트 관제 센터</div>
+        <div style='font-size:1.5rem; font-weight:900; color:#1e293b; margin-top:8px;'>스마트 관제 센터 프로젝트</div>
         <div style='font-size:0.8rem; color:#94a3b8; margin-top:4px;'>가족 전용 클라우드 플랫폼</div>
     </div>
     """, unsafe_allow_html=True)
@@ -99,8 +98,9 @@ if not st.session_state.logged_in:
 username = st.session_state.username
 
 def _unique_ts(base_time=None):
+    # 🔥 핵심 수정 1: Firebase Key 제약조건 위반 해결 (마침표 -> 언더바 변경)
     t = base_time if base_time else now_kst()
-    return t.strftime("%Y-%m-%d %H:%M:%S.%f")
+    return t.strftime("%Y-%m-%d %H:%M:%S_%f")
 
 def load_profile():
     try:
@@ -127,12 +127,16 @@ def load_settings():
     return default_settings
 
 def save_profile(profile):
-    try: requests.put(f"{FIREBASE_URL}users/{username}/profile.json", json=profile, timeout=5)
-    except: st.error("⚠️ 저장 실패")
+    try: 
+        res = requests.put(f"{FIREBASE_URL}users/{username}/profile.json", json=profile, timeout=5)
+        res.raise_for_status() # 🔥 핵심 수정 2: 서버 응답 검증
+    except: st.error("⚠️ 정보 클라우드 저장 실패")
 
 def save_settings(settings_data):
-    try: requests.put(f"{FIREBASE_URL}users/{username}/settings.json", json=settings_data, timeout=5)
-    except: st.error("⚠️ 설정 저장 실패")
+    try: 
+        res = requests.put(f"{FIREBASE_URL}users/{username}/settings.json", json=settings_data, timeout=5)
+        res.raise_for_status() # 🔥 핵심 수정 2: 서버 응답 검증
+    except: st.error("⚠️ UI 설정 클라우드 저장 실패")
 
 def load_data():
     try:
@@ -145,9 +149,13 @@ def load_data():
 
 def add_record(act, c_time=None):
     t = c_time if c_time else _unique_ts()
-    try: requests.patch(f"{FIREBASE_URL}users/{username}/logs.json", json={t: act}, timeout=5)
-    except:
-        st.error("⚠️ 기록 저장 실패"); return
+    try: 
+        res = requests.patch(f"{FIREBASE_URL}users/{username}/logs.json", json={t: act}, timeout=5)
+        res.raise_for_status() # 🔥 핵심 수정 2: 에러 발생 시 UI 업데이트 강제 중단
+    except Exception as e:
+        st.error(f"⚠️ 클라우드 기록 저장 실패. 네트워크를 확인하세요."); return
+    
+    # 서버 저장에 성공했을 때만 로컬 UI 메모리 업데이트
     new_row = pd.DataFrame([{"시간": t, "활동": act}])
     st.session_state.pet_logs = pd.concat([st.session_state.pet_logs, new_row], ignore_index=True)
     st.rerun()
@@ -157,7 +165,7 @@ if 'settings' not in st.session_state: st.session_state.settings = load_settings
 if 'pet_logs' not in st.session_state: st.session_state.pet_logs = load_data()
 
 # ==========================================
-# 🎨 동적 CSS 인젝션 (설정값 기반)
+# 🎨 동적 CSS 인젝션
 # ==========================================
 DYNAMIC_BTN_H = st.session_state.settings.get("btn_h", 4.2)
 DYNAMIC_HDR_COLOR = st.session_state.settings.get("hdr_color", "#94a3b8")
@@ -188,7 +196,6 @@ div[data-testid="column"]:nth-child(2) div.stButton > button, .btn-poo button {{
 
 input[type="text"], input[type="password"], .stTextInput input, .stTextArea textarea {{ font-size: 16px !important; }}
 
-/* 가로 나열 강제 CSS Flexbox */
 .horizontal-metrics {{
     display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px;
 }}
@@ -249,7 +256,7 @@ with st.sidebar:
             st.session_state.settings['hdr_color'] = new_hdr_c
             st.session_state.settings['order'] = new_order
             save_settings(st.session_state.settings)
-            st.success("✅ UI 설정이 반영되었습니다!")
+            st.success("✅ UI 설정이 완벽하게 클라우드에 반영되었습니다!")
             time.sleep(0.5); st.rerun()
 
     with st.expander("📝 반려견 정보 수정"):
@@ -263,7 +270,7 @@ with st.sidebar:
         if st.button("☁️ 정보 저장", use_container_width=True):
             st.session_state.profile.update({"pet_name":p_name,"birth":p_birth, "weight":p_weight,"gender":p_gender,"memo":p_memo})
             save_profile(st.session_state.profile)
-            st.success("✅ 저장 완료!")
+            st.success("✅ 프로필이 클라우드에 저장되었습니다!")
             st.rerun()
 
 # ==========================================
@@ -272,13 +279,15 @@ with st.sidebar:
 t_date = now_kst().strftime("%Y-%m-%d")
 df = st.session_state.pet_logs
 target_df = df[df['시간'].astype(str).str.startswith(t_date, na=False)].copy() if not df.empty else pd.DataFrame(columns=["시간","활동"])
-last_upload_time = str(df.iloc[-1]['시간']) if not df.empty else "없음"
 
 def get_iso(act_keyword, check_df):
     if check_df.empty: return ""
     for i in range(len(check_df)-1, -1, -1):
         act = str(check_df.iloc[i]['활동'])
-        t   = str(check_df.iloc[i]['시간']).split('.')[0]
+        t   = str(check_df.iloc[i]['시간'])
+        # 언더바나 마침표가 섞인 뒷부분(마이크로초) 절삭
+        if '_' in t: t = t.split('_')[0]
+        elif '.' in t: t = t.split('.')[0]
         if '차감' in act: continue
         if act_keyword in act:
             if '끄기' in act or '리셋' in act: return ""
@@ -300,7 +309,6 @@ d_iso = get_iso("대변", target_df)
 p_time_str = p_iso[11:16] if p_iso else "--:--"
 d_time_str = d_iso[11:16] if d_iso else "--:--"
 
-# 마지막 날짜 추출 (통합 키워드 지원)
 def get_last_date(keyword):
     if df.empty: return "기록 없음"
     matches = df[df['활동'].str.contains(keyword, na=False)]
@@ -308,7 +316,7 @@ def get_last_date(keyword):
     return matches.iloc[-1]['시간'][:10]
 
 # ==========================================
-# 🧱 UI 컴포넌트 모듈 (CDUI 렌더링용)
+# 🧱 UI 컴포넌트 모듈
 # ==========================================
 def render_timer():
     components.html(f"""
@@ -333,7 +341,6 @@ def render_timer():
 
 def render_summary():
     st.markdown("<div class='section-header'>📈 오늘의 누적 데이터 현황</div>", unsafe_allow_html=True)
-    # 🚨 강제 가로 나열을 위한 Custom HTML 적용 (모바일 화면 깨짐 완벽 방지)
     p_cnt = get_real_count('소변', target_df)
     d_cnt = get_real_count('대변', target_df)
     w_cnt = get_real_count('산책', target_df)
@@ -379,14 +386,12 @@ def render_walk():
 def render_health_beauty():
     st.markdown("<div class='section-header'>🏥 건강 / 미용 관리</div>", unsafe_allow_html=True)
     
-    # 마지막 날짜 파싱 (통합 키워드)
     last_med_hosp = get_last_date("🏥 병원/약")
     last_groom = get_last_date("✂️ 미용")
 
     with st.expander("✨ 상세 기록 관리 (약/병원/미용 메모)", expanded=False):
-        current_time_str = now_kst().strftime("%H:%M:%S.%f")
+        current_time_str = now_kst().strftime("%H:%M:%S_%f") # 언더바 적용
 
-        # 1. 통합 약 복용 / 병원 방문 (메모 입력 포함)
         st.markdown(f"<div class='health-row'><span>🏥 약 복용 / 병원 방문</span><span class='last-date'>최근: {last_med_hosp}</span></div>", unsafe_allow_html=True)
         col1_1, col1_2 = st.columns([1, 1.5])
         with col1_1:
@@ -400,7 +405,6 @@ def render_health_beauty():
 
         st.markdown("<hr style='margin: 15px 0 10px 0;'>", unsafe_allow_html=True)
 
-        # 2. 미용/목욕 (메모 입력 포함)
         st.markdown(f"<div class='health-row'><span>✂️ 미용 / 목욕 기록</span><span class='last-date'>최근: {last_groom}</span></div>", unsafe_allow_html=True)
         col2_1, col2_2 = st.columns([1, 1.5])
         with col2_1:
@@ -453,6 +457,7 @@ def render_log():
         if target_df.empty: st.info("오늘의 기록이 없습니다.")
         else:
             log_display = target_df.copy()
+            # 시간 파싱 최적화 (언더바가 있든 없든 11:19 잘라내기)
             log_display['시간'] = log_display['시간'].astype(str).str[11:19]
             log_display = log_display.sort_values('시간', ascending=False).reset_index(drop=True)
             log_display.index += 1
@@ -470,9 +475,10 @@ def render_stats():
             st.dataframe(pd.DataFrame(wdf.sum().rename("7일 합계")).T, use_container_width=True)
 
 # ==========================================
-# 🏠 메인 화면 시작 (설정 기반 동적 렌더링)
+# 🏠 메인 화면 시작
 # ==========================================
 pet_n = st.session_state.profile.get('pet_name','강아지')
+last_upload_display = str(df.iloc[-1]['시간'])[:19] if not df.empty else "없음"
 
 st.markdown(f"""
 <div class="header-card">
@@ -481,8 +487,8 @@ st.markdown(f"""
         <div style="font-size:0.8rem; opacity:0.9; margin-top:2px;">{now_kst().strftime("%m월 %d일 (%a) %H:%M")}</div>
     </div>
     <div style="text-align:right; font-size:0.75rem; opacity:0.8;">
-        <div>☁️ {last_upload_time[5:19] if last_upload_time != '없음' else '없음'}</div>
-        <div style="margin-top:4px;">{APP_VERSION} ({UPDATE_DATE[5:]})</div>
+        <div>☁️ {last_upload_display}</div>
+        <div style="margin-top:4px;">{APP_VERSION[:7]} ({UPDATE_DATE[5:]})</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -512,11 +518,12 @@ if not target_df.empty:
         last_idx  = target_df.index[-1]
         last_time = target_df.loc[last_idx, '시간']
         try:
-            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{last_time}.json", timeout=5)
+            res = requests.delete(f"{FIREBASE_URL}users/{username}/logs/{last_time}.json", timeout=5)
+            res.raise_for_status() # 삭제 응답 검증
             st.session_state.pet_logs = st.session_state.pet_logs.drop(index=last_idx).reset_index(drop=True)
             st.rerun()
         except:
-            st.error("⚠️ 삭제 실패")
+            st.error("⚠️ 클라우드에서 삭제하는 데 실패했습니다.")
 
 # --- 꼬리말 ---
 st.markdown(f"""
