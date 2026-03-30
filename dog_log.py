@@ -9,8 +9,8 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.4.0 (Stable & Bug Fix)"
-UPDATE_DATE = "2026-03-30"  # 🚀 버전 업데이트 시 이 두 변수만 수정하세요!
+APP_VERSION = "v13.5.0 (Header UI Fix)"
+UPDATE_DATE = "2026-03-31"  # 자정이 지났으므로 날짜 변경
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
@@ -25,7 +25,7 @@ if 'username' not in st.session_state: st.session_state.username = ""
 if 'force_logout' not in st.session_state: st.session_state.force_logout = False
 
 # ==========================================
-# 🚪 로그인 화면
+# 🚪 로그인 화면 (변동 없음)
 # ==========================================
 saved_user = cookie_manager.get(cookie="saved_username")
 if saved_user and not st.session_state.logged_in and not st.session_state.force_logout:
@@ -98,7 +98,7 @@ if not st.session_state.logged_in:
 username = st.session_state.username
 
 def _unique_ts(base_time=None):
-    # 🔥 핵심 수정 1: Firebase Key 제약조건 위반 해결 (마침표 -> 언더바 변경)
+    # v13.4.0 패치: Firebase Key 제약조건 위반 해결 (언더바 적용)
     t = base_time if base_time else now_kst()
     return t.strftime("%Y-%m-%d %H:%M:%S_%f")
 
@@ -120,6 +120,7 @@ def load_settings():
             loaded = res.json()
             for k in default_settings:
                 if k not in loaded: loaded[k] = default_settings[k]
+            # 구버전 호환성
             if "식사건강" in loaded.get("order", {}):
                 loaded["order"]["건강미용"] = loaded["order"].pop("식사건강")
             return loaded
@@ -129,14 +130,16 @@ def load_settings():
 def save_profile(profile):
     try: 
         res = requests.put(f"{FIREBASE_URL}users/{username}/profile.json", json=profile, timeout=5)
-        res.raise_for_status() # 🔥 핵심 수정 2: 서버 응답 검증
-    except: st.error("⚠️ 정보 클라우드 저장 실패")
+        res.raise_for_status() # v13.4.0 패치: 서버 응답 검증 의무화
+    except Exception as e:
+        st.error(f"⚠️ 프로필 클라우드 저장 실패. 앱을 종료하고 다시 시도하세요."); return
 
 def save_settings(settings_data):
     try: 
         res = requests.put(f"{FIREBASE_URL}users/{username}/settings.json", json=settings_data, timeout=5)
-        res.raise_for_status() # 🔥 핵심 수정 2: 서버 응답 검증
-    except: st.error("⚠️ UI 설정 클라우드 저장 실패")
+        res.raise_for_status() # v13.4.0 패치: 서버 응답 검증 의무화
+    except Exception as e:
+        st.error(f"⚠️ UI 설정 클라우드 저장 실패. 인터넷 상태를 확인하세요."); return
 
 def load_data():
     try:
@@ -150,36 +153,40 @@ def load_data():
 def add_record(act, c_time=None):
     t = c_time if c_time else _unique_ts()
     try: 
+        # v13.4.0 패치: 실패 시 UI 선반영 방지를 위해 raise_for_status() 적용
         res = requests.patch(f"{FIREBASE_URL}users/{username}/logs.json", json={t: act}, timeout=5)
-        res.raise_for_status() # 🔥 핵심 수정 2: 에러 발생 시 UI 업데이트 강제 중단
+        res.raise_for_status()
     except Exception as e:
-        st.error(f"⚠️ 클라우드 기록 저장 실패. 네트워크를 확인하세요."); return
+        st.error(f"⚠️ 클라우드 기록 저장 실패 (껐다 켜면 복구됨). 네트워크 상태를 확인하세요."); return
     
-    # 서버 저장에 성공했을 때만 로컬 UI 메모리 업데이트
+    # 서버 저장 성공 시에만 로컬 UI 메모리 업데이트
     new_row = pd.DataFrame([{"시간": t, "활동": act}])
     st.session_state.pet_logs = pd.concat([st.session_state.pet_logs, new_row], ignore_index=True)
     st.rerun()
 
+# 세션 초기화
 if 'profile' not in st.session_state: st.session_state.profile = load_profile()
 if 'settings' not in st.session_state: st.session_state.settings = load_settings()
 if 'pet_logs' not in st.session_state: st.session_state.pet_logs = load_data()
 
 # ==========================================
-# 🎨 동적 CSS 인젝션
+# 🎨 동적 CSS 인젝션 (설정값 기반 및 UI 픽스)
 # ==========================================
 DYNAMIC_BTN_H = st.session_state.settings.get("btn_h", 4.2)
 DYNAMIC_HDR_COLOR = st.session_state.settings.get("hdr_color", "#94a3b8")
 
 st.markdown(f"""
 <style>
-.block-container {{ padding: 0.5rem 0.75rem 6rem 0.75rem !important; max-width: 500px !important; }}
+/* 🚀 v13.5.0 픽스: 앱 상단 외부 여백 확보 ('짤린 느낌' 해결) */
+.block-container {{ padding: 1.5rem 0.75rem 6rem 0.75rem !important; max-width: 500px !important; }}
 ::-webkit-scrollbar {{ width: 0px; }}
 
+/* 🚀 v13.5.0 픽스: 헤더 카드 내부 공간 확장 및 최소 높이 증가 (글자 가독성 해결) */
 .header-card {{
     display:flex; justify-content:space-between; align-items:center; 
     background:linear-gradient(135deg,#667eea,#764ba2); 
-    border-radius:18px; padding:18px 20px; margin-bottom:15px; color:white;
-    min-height: 85px; line-height: 1.4; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    border-radius:18px; padding:25px 20px; margin-bottom:15px; color:white;
+    min-height: 100px; line-height: 1.4; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }}
 
 div.stButton > button {{
@@ -196,6 +203,7 @@ div[data-testid="column"]:nth-child(2) div.stButton > button, .btn-poo button {{
 
 input[type="text"], input[type="password"], .stTextInput input, .stTextArea textarea {{ font-size: 16px !important; }}
 
+/* v13.3.0 패치: 모바일 화면 깨짐 완벽 방지 (강제 가로 나열) */
 .horizontal-metrics {{
     display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px;
 }}
@@ -211,6 +219,7 @@ input[type="text"], input[type="password"], .stTextInput input, .stTextArea text
     letter-spacing: 1.5px; text-transform: uppercase; margin: 20px 0 10px 2px;
 }}
 
+/* 통합 건강/미용 특화 디자인 */
 .health-row {{
     display: flex; justify-content: space-between; align-items: center;
     background: #f8fafc; padding: 10px 15px; border-radius: 12px; margin-bottom: 8px;
@@ -256,7 +265,7 @@ with st.sidebar:
             st.session_state.settings['hdr_color'] = new_hdr_c
             st.session_state.settings['order'] = new_order
             save_settings(st.session_state.settings)
-            st.success("✅ UI 설정이 완벽하게 클라우드에 반영되었습니다!")
+            st.success("✅ UI 설정이 클라우드에 완벽하게 저장되었습니다!")
             time.sleep(0.5); st.rerun()
 
     with st.expander("📝 반려견 정보 수정"):
@@ -270,7 +279,7 @@ with st.sidebar:
         if st.button("☁️ 정보 저장", use_container_width=True):
             st.session_state.profile.update({"pet_name":p_name,"birth":p_birth, "weight":p_weight,"gender":p_gender,"memo":p_memo})
             save_profile(st.session_state.profile)
-            st.success("✅ 프로필이 클라우드에 저장되었습니다!")
+            st.success("✅ 정보가 클라우드에 저장되었습니다!")
             st.rerun()
 
 # ==========================================
@@ -284,7 +293,7 @@ def get_iso(act_keyword, check_df):
     if check_df.empty: return ""
     for i in range(len(check_df)-1, -1, -1):
         act = str(check_df.iloc[i]['활동'])
-        t   = str(check_df.iloc[i]['시간'])
+        t = str(check_df.iloc[i]['시간'])
         # 언더바나 마침표가 섞인 뒷부분(마이크로초) 절삭
         if '_' in t: t = t.split('_')[0]
         elif '.' in t: t = t.split('.')[0]
@@ -345,6 +354,7 @@ def render_summary():
     d_cnt = get_real_count('대변', target_df)
     w_cnt = get_real_count('산책', target_df)
     
+    # Custom HTML Flexbox (v13.3.0)
     st.markdown(f"""
     <div class="horizontal-metrics">
         <div class="metric-box">
@@ -390,8 +400,9 @@ def render_health_beauty():
     last_groom = get_last_date("✂️ 미용")
 
     with st.expander("✨ 상세 기록 관리 (약/병원/미용 메모)", expanded=False):
-        current_time_str = now_kst().strftime("%H:%M:%S_%f") # 언더바 적용
+        current_time_str = now_kst().strftime("%H:%M:%S_%f") # 언더바 키
 
+        # 1. 통합 약 복용 / 병원 방문
         st.markdown(f"<div class='health-row'><span>🏥 약 복용 / 병원 방문</span><span class='last-date'>최근: {last_med_hosp}</span></div>", unsafe_allow_html=True)
         col1_1, col1_2 = st.columns([1, 1.5])
         with col1_1:
@@ -405,6 +416,7 @@ def render_health_beauty():
 
         st.markdown("<hr style='margin: 15px 0 10px 0;'>", unsafe_allow_html=True)
 
+        # 2. 미용/목욕
         st.markdown(f"<div class='health-row'><span>✂️ 미용 / 목욕 기록</span><span class='last-date'>최근: {last_groom}</span></div>", unsafe_allow_html=True)
         col2_1, col2_2 = st.columns([1, 1.5])
         with col2_1:
@@ -457,7 +469,7 @@ def render_log():
         if target_df.empty: st.info("오늘의 기록이 없습니다.")
         else:
             log_display = target_df.copy()
-            # 시간 파싱 최적화 (언더바가 있든 없든 11:19 잘라내기)
+            # 시간 파싱 최적화 (언더바나 마침표 절삭)
             log_display['시간'] = log_display['시간'].astype(str).str[11:19]
             log_display = log_display.sort_values('시간', ascending=False).reset_index(drop=True)
             log_display.index += 1
@@ -475,11 +487,12 @@ def render_stats():
             st.dataframe(pd.DataFrame(wdf.sum().rename("7일 합계")).T, use_container_width=True)
 
 # ==========================================
-# 🏠 메인 화면 시작
+# 🏠 메인 화면 시작 (CDUI 렌더링)
 # ==========================================
 pet_n = st.session_state.profile.get('pet_name','강아지')
 last_upload_display = str(df.iloc[-1]['시간'])[:19] if not df.empty else "없음"
 
+# 상단 헤더 바 (v13.5.0 픽스 적용)
 st.markdown(f"""
 <div class="header-card">
     <div>
