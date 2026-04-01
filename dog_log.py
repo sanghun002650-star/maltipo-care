@@ -9,7 +9,7 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.5.1 (Manual Sync Fix)"
+APP_VERSION = "v13.5.0 (Search & D-Day)"
 UPDATE_DATE = "2026-04-01"  # 🚀 최신 업데이트 날짜 반영
 
 KST = timezone(timedelta(hours=9))
@@ -268,7 +268,7 @@ def get_d_day_info(keyword):
 # 🧱 UI 모듈
 # ==========================================
 def render_timer():
-    # 마지막 시간 추출 (수동 조절 파싱 로직 추가)
+    # 마지막 시간 추출 (수동 조절 파싱 로직 추가 - 13.5 코어 유지)
     def _get_time(k):
         m = target_df[target_df['활동'].str.contains(k) & ~target_df['활동'].str.contains('차감')]
         if m.empty: return ""
@@ -283,7 +283,7 @@ def render_timer():
             return f"{d_val}T{t_val}+09:00"
         
         # 일반 기록인 경우 정상적으로 키(시간) 사용
-        return last_time.split('_')[0].replace(" ","T")+"+09:00"
+        return last_time.split('_')[0].replace(" ","T")+09:00"
 
     p_iso, d_iso = _get_time("소변"), _get_time("대변")
     p_str, d_str = p_iso[11:16] if p_iso else "--:--", d_iso[11:16] if d_iso else "--:--"
@@ -374,6 +374,7 @@ def render_manual():
         with t1:
             p_wheel = st.time_input("시간 선택", now_kst().time(), key="p_wheel")
             if st.button("소변 시간 수정"): 
+                # c_time 생략으로 현재 시간 기준 순서 정렬, 페이로드로 수정 시간 전송
                 add_record(f"💦 소변(수정) [{p_wheel.strftime('%H:%M:%S')}] (통계제외)")
         with t2:
             d_wheel = st.time_input("시간 선택", now_kst().time(), key="d_wheel")
@@ -453,7 +454,8 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 📌 VERSION INFO: v13.5.1 (2026-04-01) 
+# 업데이트 정보 표기 (요청 사항 반영)
+# 업데이트 버전 정보: v13.5.0 (Manual Sync Patch)
+# 업데이트 날짜: 2026-04-01
+
 # END
-# ==========================================
