@@ -9,8 +9,8 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.6.1 (UI 탭 간격 최적화)"
-UPDATE_DATE = "2026-04-01"
+APP_VERSION = "v13.6.2 (헤더 여백 최적화)"
+UPDATE_DATE = "2026-04-02"
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
@@ -173,10 +173,13 @@ st.markdown(f"""
 .block-container {{ padding: 0.5rem 0.75rem 6rem 0.75rem !important; max-width: 500px !important; }}
 ::-webkit-scrollbar {{ width: 0px; }}
 
+/* 🔥 헤더 카드 상단 여백 보강 */
 .header-card {{
     display:flex; justify-content:space-between; align-items:center; 
     background:linear-gradient(135deg,#667eea,#764ba2); 
-    border-radius:18px; padding:18px 20px; margin-bottom:15px; color:white;
+    border-radius:18px; 
+    padding: 28px 20px 14px 20px; 
+    margin-bottom:15px; color:white;
     min-height: 85px; line-height: 1.4; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }}
 
@@ -211,7 +214,7 @@ div.stButton > button {{
     font-size: 0.7rem; margin-left: 5px; font-weight: 800;
 }}
 
-/* 🔥 핵심 수정: 탭 간격 및 터치 영역 대폭 확장 */
+/* 탭 간격 및 터치 영역 유지 */
 .stTabs [data-baseweb="tab-list"] {{ 
     gap: 25px !important; 
     justify-content: center !important; 
@@ -281,7 +284,6 @@ def get_iso(act_keyword, check_df):
         act = str(check_df.iloc[i]['활동'])
         t   = str(check_df.iloc[i]['시간'])
         
-        # 마이크로초 절삭
         if '_' in t: t = t.split('_')[0]
         elif '.' in t: t = t.split('.')[0]
         
@@ -290,14 +292,13 @@ def get_iso(act_keyword, check_df):
         if act_keyword in act:
             if '끄기' in act or '리셋' in act: return ""
             
-            # 🔥 핵심 수정: 수동 조절 데이터 [HH:MM:SS] 파싱 로직
             if '(수정)' in act and '[' in act and ']' in act:
                 try:
                     extracted_time = act.split('[')[1].split(']')[0]
-                    date_part = t.split(' ')[0] # Key에 기록된 해당 날짜
+                    date_part = t.split(' ')[0]
                     return f"{date_part}T{extracted_time}+09:00"
                 except:
-                    pass # 파싱 실패 시 기본 로직으로 폴백
+                    pass
                     
             return t.replace(" ","T") + "+09:00"
     return ""
@@ -390,7 +391,6 @@ def render_health_beauty():
 
     with st.expander("✨ 상세 기록 관리 (약/병원/미용 메모)", expanded=False):
         ts = now_kst().strftime("%H:%M:%S_%f")
-        # 1. 병원/약
         st.markdown(f"<div class='health-row'><span>🏥 병원/약</span><span class='last-date'>{l_mh} {d_mh}</span></div>", unsafe_allow_html=True)
         c1, c2 = st.columns([1, 1.5])
         with c1: d_val = st.date_input("날짜", key="d_mh")
@@ -399,7 +399,6 @@ def render_health_beauty():
             add_record(f"🏥 병원/약: {t_val}" if t_val else "🏥 병원/약", f"{d_val} {ts}")
         
         st.divider()
-        # 2. 미용
         st.markdown(f"<div class='health-row'><span>✂️ 미용/목욕</span><span class='last-date'>{l_gr} {d_gr}</span></div>", unsafe_allow_html=True)
         c3, c4 = st.columns([1, 1.5])
         with c3: d_grv = st.date_input("날짜", key="d_gr")
@@ -416,7 +415,6 @@ def render_manual():
             with tw1:
                 p_wheel = st.time_input("시간 선택", now_kst().time(), key="p_wheel")
                 if st.button("소변 시간 수정", key="bp_w", use_container_width=True): 
-                    # 🔥 c_time 생략: Key는 현재 시간으로, 활동 문자열에 시간 인코딩
                     add_record(f"💦 소변(수정) [{p_wheel.strftime('%H:%M:%S')}] (통계제외)")
             with tk1:
                 p_txt = st.text_input("시간 입력 (HH:MM)", value=now_kst().strftime("%H:%M"), key="p_txt")
@@ -514,7 +512,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 프로그램 버전 정보 
-# 현재 버전: v13.6.1 | 업데이트: 2026-04-01
+# 프로그램 버전 정보
+# 현재 버전: v13.6.2 | 업데이트: 2026-04-02
 
 # END
