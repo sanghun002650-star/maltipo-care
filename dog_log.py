@@ -3,8 +3,9 @@ import pandas as pd
 from datetime import datetime, timezone, timedelta
 import streamlit.components.v1 as components
 import requests
+from urllib.parse import quote
 import extra_streamlit_components as stx
-import time 
+import time
 
 # ==========================================
 # 0. 기본 설정
@@ -427,7 +428,7 @@ def render_health_beauty():
         st.markdown(f"<div class='health-row'><span>🏥 병원/약</span><span class='last-date'>{l_mh} {d_mh}</span></div>", unsafe_allow_html=True)
         c1, c2 = st.columns([1.2, 1])
         with c1:
-            d_val = st.date_input("날짜", key="d_mh")
+            d_val = st.date_input("날짜", value=now_kst().date(), key="d_mh")
             t_val = st.text_input("메모 (예: 심장사상충)", key="t_mh", placeholder="음성/키보드 입력")
             if st.button("🏥 기록 저장", use_container_width=True):
                 add_record(f"🏥 병원/약: {t_val}" if t_val else "🏥 병원/약", f"{d_val} {ts}")
@@ -446,7 +447,7 @@ def render_health_beauty():
         st.markdown(f"<div class='health-row'><span>✂️ 미용/목욕</span><span class='last-date'>{l_gr} {d_gr}</span></div>", unsafe_allow_html=True)
         c3, c4 = st.columns([1.2, 1])
         with c3:
-            d_grv = st.date_input("날짜", key="d_gr")
+            d_grv = st.date_input("날짜", value=now_kst().date(), key="d_gr")
             t_grv = st.text_input("메모 (예: 전체미용)", key="t_gr", placeholder="음성/키보드 입력")
             if st.button("✂️ 기록 저장", use_container_width=True):
                 add_record(f"✂️ 미용: {t_grv}" if t_grv else "✂️ 미용 및 목욕", f"{d_grv} {ts}")
@@ -554,9 +555,11 @@ if not target_df.empty:
     last_t   = str(target_df.iloc[-1]['시간'])[11:19]
     if st.button(f"❌ 직전 취소: [{last_t}] {last_act}", use_container_width=True):
         try:
-            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{target_df.iloc[-1]['시간']}.json", timeout=5).raise_for_status()
+            key = str(target_df.iloc[-1]['시간'])
+            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{quote(key, safe='')}.json", timeout=5).raise_for_status()
+            st.session_state.pet_logs = st.session_state.pet_logs[st.session_state.pet_logs['시간'] != key].reset_index(drop=True)
             st.rerun()
-        except: st.error("취소 실패") 
+        except: st.error("취소 실패")
 
 st.markdown(f"""
 <div style="text-align:center; color:#94a3b8; font-size:0.75rem; padding:10px 0 20px;">
