@@ -9,7 +9,7 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.7.0 (건강/미용 UI 2분할 개편)"
+APP_VERSION = "v13.7.1 (모바일 가로 분할 강제 적용)"
 UPDATE_DATE = "2026-04-02"
 
 KST = timezone(timedelta(hours=9))
@@ -213,7 +213,7 @@ div.stButton > button {{
     font-size: 0.7rem; margin-left: 5px; font-weight: 800;
 }}
 
-/* 🔥 신규 CSS: 최근 기록 표시 박스 스타일 */
+/* 최근 기록 표시 박스 스타일 */
 .latest-record-box {{
     padding: 12px 10px;
     border-radius: 8px;
@@ -238,6 +238,14 @@ div.stButton > button {{
 }}
 hr {{ margin: 12px 0 !important; }}
 .streamlit-expanderHeader {{ font-weight: 700 !important; font-size: 0.95rem !important; }}
+
+/* 🔥 핵심 수정: 모바일 환경에서 컬럼(st.columns)이 세로로 꺾이지 않게 강제 가로 배열 설정 */
+@media (max-width: 768px) {{
+    div[data-testid="stHorizontalBlock"] {{
+        flex-direction: row !important;
+        gap: 10px !important;
+    }}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -323,7 +331,6 @@ def get_real_count(keyword, check_df):
             else: plus += 1
     return max(0, plus - minus)
 
-# 🔥 헬퍼 수정: 최근 기록의 메모 내용까지 함께 파싱하여 반환
 def get_d_day_info(keyword):
     if df.empty: return "기록 없음", "", "기록 없음"
     matches = df[df['활동'].str.contains(keyword, na=False)]
@@ -333,7 +340,6 @@ def get_d_day_info(keyword):
     last_dt_str = last_record['시간'][:10]
     last_act = last_record['활동']
     
-    # "🏥 병원/약: 심장사상충" 형태에서 메모 내용(심장사상충)만 추출
     if ":" in last_act:
         last_memo = last_act.split(":", 1)[1].strip()
     else:
@@ -406,7 +412,6 @@ def render_walk():
     with w4:
         if st.button("🦮+💧+💩\n모두 해결", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
 
-# 🔥 핵심 수정: 2분할 레이아웃 및 최근 기록 카드 디자인 적용
 def render_health_beauty():
     st.markdown("<div class='section-header'>🏥 건강 / 미용 관리</div>", unsafe_allow_html=True)
     l_mh, d_mh, memo_mh = get_d_day_info("🏥 병원/약")
@@ -417,7 +422,6 @@ def render_health_beauty():
         
         # 1. 병원/약
         st.markdown(f"<div class='health-row'><span>🏥 병원/약</span><span class='last-date'>{l_mh} {d_mh}</span></div>", unsafe_allow_html=True)
-        # 좌측(입력폼) 1.2 : 우측(최근기록) 1 비율 분할
         c1, c2 = st.columns([1.2, 1])
         with c1:
             d_val = st.date_input("날짜", key="d_mh")
@@ -559,6 +563,6 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # 프로그램 버전 정보
-# 현재 버전: v13.7.0 | 업데이트: 2026-04-02
+# 현재 버전: v13.7.1 | 업데이트: 2026-04-02
 
 # END
