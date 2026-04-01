@@ -4,25 +4,25 @@ from datetime import datetime, timezone, timedelta
 import streamlit.components.v1 as components
 import requests
 import extra_streamlit_components as stx
-import time
+import time 
 
 # ==========================================
 # 0. 기본 설정
 # ==========================================
 APP_VERSION = "v13.7.1 (모바일 가로 분할 강제 적용)"
-UPDATE_DATE = "2026-04-02"
+UPDATE_DATE = "2026-04-02" 
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
-FIREBASE_URL = "https://petcare-test-c28cd-default-rtdb.asia-southeast1.firebasedatabase.app/"
+FIREBASE_URL = "https://petcare-test-c28cd-default-rtdb.asia-southeast1.firebasedatabase.app/" 
 
-st.set_page_config(page_title="🐾 관제 센터", layout="centered", page_icon="🐾", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="🐾 관제 센터", layout="centered", page_icon="🐾", initial_sidebar_state="collapsed") 
 
 # --- 쿠키 매니저 ---
 cookie_manager = stx.CookieManager(key="pet_cookie_manager")
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'username' not in st.session_state: st.session_state.username = ""
-if 'force_logout' not in st.session_state: st.session_state.force_logout = False
+if 'force_logout' not in st.session_state: st.session_state.force_logout = False 
 
 # ==========================================
 # 🚪 로그인 화면
@@ -31,7 +31,7 @@ saved_user = cookie_manager.get(cookie="saved_username")
 if saved_user and not st.session_state.logged_in and not st.session_state.force_logout:
     st.session_state.logged_in = True
     st.session_state.username = saved_user
-    st.rerun()
+    st.rerun() 
 
 if not st.session_state.logged_in:
     st.markdown("""
@@ -90,23 +90,23 @@ if not st.session_state.logged_in:
                     st.error("⚠️ 네트워크 오류.")
             else:
                 st.warning("모든 항목을 입력하세요.")
-    st.stop()
+    st.stop() 
 
 # ==========================================
 # ☁️ 클라우드 엔진
 # ==========================================
-username = st.session_state.username
+username = st.session_state.username 
 
 def _unique_ts(base_time=None):
     t = base_time if base_time else now_kst()
-    return t.strftime("%Y-%m-%d %H:%M:%S_%f")
+    return t.strftime("%Y-%m-%d %H:%M:%S_%f") 
 
 def load_profile():
     try:
         res = requests.get(f"{FIREBASE_URL}users/{username}/profile.json", timeout=5)
         if res.status_code == 200 and res.json(): return res.json()
     except: pass
-    return {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
+    return {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""} 
 
 def load_settings():
     default_settings = {
@@ -123,19 +123,19 @@ def load_settings():
                 loaded["order"]["건강미용"] = loaded["order"].pop("식사건강")
             return loaded
     except: pass
-    return default_settings
+    return default_settings 
 
 def save_profile(profile):
     try: 
         res = requests.put(f"{FIREBASE_URL}users/{username}/profile.json", json=profile, timeout=5)
         res.raise_for_status()
-    except: st.error("⚠️ 저장 실패")
+    except: st.error("⚠️ 저장 실패") 
 
 def save_settings(settings_data):
     try: 
         res = requests.put(f"{FIREBASE_URL}users/{username}/settings.json", json=settings_data, timeout=5)
         res.raise_for_status()
-    except: st.error("⚠️ 설정 저장 실패")
+    except: st.error("⚠️ 설정 저장 실패") 
 
 def load_data():
     try:
@@ -144,7 +144,7 @@ def load_data():
             records = [{"시간": k, "활동": v} for k, v in res.json().items()]
             return pd.DataFrame(records).sort_values("시간").reset_index(drop=True)
     except: st.warning("⚠️ 데이터 로드 실패")
-    return pd.DataFrame(columns=["시간", "활동"])
+    return pd.DataFrame(columns=["시간", "활동"]) 
 
 def add_record(act, c_time=None):
     t = c_time if c_time else _unique_ts()
@@ -156,38 +156,38 @@ def add_record(act, c_time=None):
     
     new_row = pd.DataFrame([{"시간": t, "활동": act}])
     st.session_state.pet_logs = pd.concat([st.session_state.pet_logs, new_row], ignore_index=True)
-    st.rerun()
+    st.rerun() 
 
 if 'profile' not in st.session_state: st.session_state.profile = load_profile()
 if 'settings' not in st.session_state: st.session_state.settings = load_settings()
-if 'pet_logs' not in st.session_state: st.session_state.pet_logs = load_data()
+if 'pet_logs' not in st.session_state: st.session_state.pet_logs = load_data() 
 
 # ==========================================
 # 🎨 동적 CSS 인젝션
 # ==========================================
 DYNAMIC_BTN_H = st.session_state.settings.get("btn_h", 4.2)
-DYNAMIC_HDR_COLOR = st.session_state.settings.get("hdr_color", "#94a3b8")
+DYNAMIC_HDR_COLOR = st.session_state.settings.get("hdr_color", "#94a3b8") 
 
 st.markdown(f"""
 <style>
 .block-container {{ padding: 0.5rem 0.75rem 6rem 0.75rem !important; max-width: 500px !important; }}
-::-webkit-scrollbar {{ width: 0px; }}
+::-webkit-scrollbar {{ width: 0px; }} 
 
 .header-card {{
     display:flex; justify-content:space-between; align-items:center; 
     background:linear-gradient(135deg,#667eea,#764ba2); 
     border-radius:18px; 
-    padding: 28px 20px 14px 20px; 
+    padding: 40px 20px 14px 20px; 
     margin-bottom:15px; color:white;
     min-height: 85px; line-height: 1.4; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-}}
+}} 
 
 div.stButton > button {{
     height: {DYNAMIC_BTN_H}rem !important;
     border-radius: 16px !important; font-weight: 900 !important; font-size: 1.05rem !important;
     letter-spacing: -0.3px !important; border: none !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important; transition: transform 0.1s, box-shadow 0.1s !important;
-}}
+}} 
 
 .horizontal-metrics {{ display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; }}
 .metric-box {{
@@ -195,12 +195,12 @@ div.stButton > button {{
     box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; border: 1px solid #f1f5f9;
 }}
 .metric-label {{ font-size: 0.8rem; font-weight: 700; color: #64748b; margin-bottom: 4px; }}
-.metric-value {{ font-size: 1.8rem; font-weight: 900; color: #0f172a; line-height: 1.1; }}
+.metric-value {{ font-size: 1.8rem; font-weight: 900; color: #0f172a; line-height: 1.1; }} 
 
 .section-header {{
     font-size: 0.85rem; font-weight: 800; color: {DYNAMIC_HDR_COLOR};
     letter-spacing: 1.5px; text-transform: uppercase; margin: 20px 0 10px 2px;
-}}
+}} 
 
 .health-row {{
     display: flex; justify-content: space-between; align-items: center;
@@ -211,7 +211,7 @@ div.stButton > button {{
 .d-day-badge {{
     background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 6px;
     font-size: 0.7rem; margin-left: 5px; font-weight: 800;
-}}
+}} 
 
 /* 최근 기록 표시 박스 스타일 */
 .latest-record-box {{
@@ -225,7 +225,7 @@ div.stButton > button {{
     margin-bottom: 1rem;
 }}
 .latest-record-title {{ font-size: 0.7rem; font-weight: 800; margin-bottom: 4px; }}
-.latest-record-content {{ font-size: 0.85rem; font-weight: 700; word-break: break-all; line-height: 1.3; }}
+.latest-record-content {{ font-size: 0.85rem; font-weight: 700; word-break: break-all; line-height: 1.3; }} 
 
 .stTabs [data-baseweb="tab-list"] {{ 
     gap: 25px !important; 
@@ -237,7 +237,7 @@ div.stButton > button {{
     padding: 0 15px !important; 
 }}
 hr {{ margin: 12px 0 !important; }}
-.streamlit-expanderHeader {{ font-weight: 700 !important; font-size: 0.95rem !important; }}
+.streamlit-expanderHeader {{ font-weight: 700 !important; font-size: 0.95rem !important; }} 
 
 /* 🔥 핵심 수정: 모바일 환경에서 컬럼(st.columns)이 세로로 꺾이지 않게 강제 가로 배열 설정 */
 @media (max-width: 768px) {{
@@ -247,7 +247,7 @@ hr {{ margin: 12px 0 !important; }}
     }}
 }}
 </style>
-""", unsafe_allow_html=True)
+""", unsafe_allow_html=True) 
 
 # ==========================================
 # ⚙️ 사이드바
@@ -275,10 +275,10 @@ with st.sidebar:
         if st.button("설정 저장", use_container_width=True, type="primary"):
             st.session_state.settings.update({'btn_h': new_btn_h, 'hdr_color': new_hdr_c, 'order': new_order})
             save_settings(st.session_state.settings)
-            st.rerun()
+            st.rerun() 
 
     with st.expander("📝 반려견 정보 수정"):
-        p_name   = st.text_input("🐶 이름",    value=st.session_state.profile.get('pet_name',''))
+        p_name   = st.text_input("🐶 이름",   value=st.session_state.profile.get('pet_name',''))
         p_birth  = st.text_input("🎂 생년월일", value=st.session_state.profile.get('birth',''))
         p_weight = st.text_input("⚖️ 몸무게",  value=st.session_state.profile.get('weight',''))
         gender_options = ["수컷","암컷","중성화 수컷","중성화 암컷","기타"]
@@ -289,14 +289,14 @@ with st.sidebar:
             st.session_state.profile.update({"pet_name":p_name,"birth":p_birth, "weight":p_weight,"gender":p_gender,"memo":p_memo})
             save_profile(st.session_state.profile)
             st.success("✅ 저장 완료!")
-            st.rerun()
+            st.rerun() 
 
 # ==========================================
 # 📊 데이터 헬퍼
 # ==========================================
 t_date = now_kst().strftime("%Y-%m-%d")
 df = st.session_state.pet_logs
-target_df = df[df['시간'].astype(str).str.startswith(t_date, na=False)].copy() if not df.empty else pd.DataFrame(columns=["시간","활동"])
+target_df = df[df['시간'].astype(str).str.startswith(t_date, na=False)].copy() if not df.empty else pd.DataFrame(columns=["시간","활동"]) 
 
 def get_iso(act_keyword, check_df):
     if check_df.empty: return ""
@@ -319,7 +319,7 @@ def get_iso(act_keyword, check_df):
                 except:
                     pass
             return t.replace(" ","T") + "+09:00"
-    return ""
+    return "" 
 
 def get_real_count(keyword, check_df):
     if check_df.empty: return 0
@@ -329,16 +329,19 @@ def get_real_count(keyword, check_df):
             if '차감' in act: minus += 1
             elif any(x in act for x in ['리셋','끄기','통계제외']): pass
             else: plus += 1
-    return max(0, plus - minus)
+    return max(0, plus - minus) 
 
 def get_d_day_info(keyword):
     if df.empty: return "기록 없음", "", "기록 없음"
-    matches = df[df['활동'].str.contains(keyword, na=False)]
+    
+    matches = df[df['활동'].str.contains(keyword, na=False)].copy()
     if matches.empty: return "기록 없음", "", "기록 없음"
     
+    matches = matches.sort_values(by='시간', ascending=True)
+    
     last_record = matches.iloc[-1]
-    last_dt_str = last_record['시간'][:10]
-    last_act = last_record['활동']
+    last_dt_str = str(last_record['시간'])[:10]
+    last_act = str(last_record['활동'])
     
     if ":" in last_act:
         last_memo = last_act.split(":", 1)[1].strip()
@@ -354,7 +357,7 @@ def get_d_day_info(keyword):
 p_iso = get_iso("소변", target_df)
 d_iso = get_iso("대변", target_df)
 p_time_str = p_iso[11:16] if p_iso else "--:--"
-d_time_str = d_iso[11:16] if d_iso else "--:--"
+d_time_str = d_iso[11:16] if d_iso else "--:--" 
 
 # ==========================================
 # 🧱 UI 모듈
@@ -378,7 +381,7 @@ def render_timer():
         function upD(){{ const el=document.getElementById('d_tm'), iso="{d_iso}"; if(!iso){{el.innerText="--:--";return;}} const diff=new Date()-new Date(iso); if(diff<0)return; const m=Math.floor(diff/60000); el.innerText=String(Math.floor(m/60)).padStart(2,'0')+":"+String(m%60).padStart(2,'0'); }}
         setInterval(()=>{{upP();upD();}},1000); upP(); upD();
     </script>
-    """, height=145)
+    """, height=145) 
 
 def render_summary():
     st.markdown("<div class='section-header'>📈 오늘의 누적 데이터 현황</div>", unsafe_allow_html=True)
@@ -389,7 +392,7 @@ def render_summary():
         <div class="metric-box"><div class="metric-label">💩 대변</div><div class="metric-value">{d}회</div></div>
         <div class="metric-box"><div class="metric-label">🦮 산책</div><div class="metric-value">{w}회</div></div>
     </div>
-    """, unsafe_allow_html=True)
+    """, unsafe_allow_html=True) 
 
 def render_poo_pee():
     st.markdown("<div class='section-header'>🚨 배변 기록</div>", unsafe_allow_html=True)
@@ -397,7 +400,7 @@ def render_poo_pee():
     with b1:
         if st.button("💧 집에서\n소변", use_container_width=True): add_record("💦 집에서 소변")
     with b2:
-        if st.button("💩 집에서\n대변", use_container_width=True): add_record("💩 집에서 대변")
+        if st.button("💩 집에서\n대변", use_container_width=True): add_record("💩 집에서 대변") 
 
 def render_walk():
     st.markdown("<div class='section-header'>🌳 산책 기록</div>", unsafe_allow_html=True)
@@ -410,12 +413,12 @@ def render_walk():
     with w3:
         if st.button("🦮+💩 산책대변", use_container_width=True): add_record("🦮+💩 산책 중 대변")
     with w4:
-        if st.button("🦮+💧+💩\n모두 해결", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
+        if st.button("🦮+💧+💩\n모두 해결", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변") 
 
 def render_health_beauty():
     st.markdown("<div class='section-header'>🏥 건강 / 미용 관리</div>", unsafe_allow_html=True)
     l_mh, d_mh, memo_mh = get_d_day_info("🏥 병원/약")
-    l_gr, d_gr, memo_gr = get_d_day_info("✂️ 미용")
+    l_gr, d_gr, memo_gr = get_d_day_info("✂️ 미용") 
 
     with st.expander("✨ 상세 기록 관리 (약/병원/미용 메모)", expanded=False):
         ts = now_kst().strftime("%H:%M:%S_%f")
@@ -454,7 +457,7 @@ def render_health_beauty():
                 <div style='font-size:0.65rem; color:#71717a; margin-bottom: 2px;'>{l_gr}</div>
                 <div class='latest-record-content' style='color: #831843;'>{memo_gr}</div>
             </div>
-            """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True) 
 
 def render_manual():
     with st.expander("⚙️ 타이머 수동 조절 / 리셋"):
@@ -487,7 +490,7 @@ def render_manual():
                         vt = datetime.strptime(d_txt, '%H:%M').strftime('%H:%M:00')
                         add_record(f"💩 대변(수정) [{vt}] (통계제외)")
                     except: st.error("HH:MM 형식!")
-            if st.button("🔄 대변 타이머 리셋", use_container_width=True, key="bd_r", type="secondary"): add_record("💩 대변 리셋 (통계제외)")
+            if st.button("🔄 대변 타이머 리셋", use_container_width=True, key="bd_r", type="secondary"): add_record("💩 대변 리셋 (통계제외)") 
 
 def render_deduct():
     with st.expander("➖ 잘못 누른 기록 차감"):
@@ -497,7 +500,7 @@ def render_deduct():
         with a2:
             if st.button("💩 대변\n-1", use_container_width=True): add_record("💩 대변 차감 (-1)")
         with a3:
-            if st.button("🦮 산책\n-1", use_container_width=True): add_record("🦮 산책 차감 (-1)")
+            if st.button("🦮 산책\n-1", use_container_width=True): add_record("🦮 산책 차감 (-1)") 
 
 def render_log():
     with st.expander(f"📋 오늘 활동 로그 ({len(target_df)}건)", expanded=True):
@@ -510,7 +513,7 @@ def render_log():
             log_display['시간'] = log_display['시간'].astype(str).str[11:19]
             log_display = log_display.sort_values('시간', ascending=False).reset_index(drop=True)
             log_display.index += 1
-            st.dataframe(log_display, use_container_width=True, column_config={"시간": st.column_config.TextColumn("🕐 시간", width="small"), "활동": st.column_config.TextColumn("📝 활동")})
+            st.dataframe(log_display, use_container_width=True, column_config={"시간": st.column_config.TextColumn("🕐 시간", width="small"), "활동": st.column_config.TextColumn("📝 활동")}) 
 
 def render_stats():
     with st.expander("📊 주간 배변 통계"):
@@ -518,20 +521,20 @@ def render_stats():
         else:
             w_dates = [(now_kst() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
             w_data = [{"날짜": d[5:], "소변": get_real_count('소변', df[df['시간'].astype(str).str.startswith(d)]), "대변": get_real_count('대변', df[df['시간'].astype(str).str.startswith(d)]), "산책": get_real_count('산책', df[df['시간'].astype(str).str.startswith(d)])} for d in w_dates]
-            st.bar_chart(pd.DataFrame(w_data).set_index("날짜"), color=["#22c55e","#f97316","#3b82f6"])
+            st.bar_chart(pd.DataFrame(w_data).set_index("날짜"), color=["#22c55e","#f97316","#3b82f6"]) 
 
 # ==========================================
 # 🏠 메인 렌더링
 # ==========================================
 pet_n = st.session_state.profile.get('pet_name','강아지')
-last_up = str(df.iloc[-1]['시간'])[:19] if not df.empty else "없음"
+last_up = str(df.iloc[-1]['시간'])[:19] if not df.empty else "없음" 
 
 st.markdown(f"""
 <div class="header-card">
     <div><div style="font-size:1.4rem; font-weight:900;">🐾 {pet_n} 센터</div><div style="font-size:0.8rem; opacity:0.9;">{now_kst().strftime("%m월 %d일 (%a) %H:%M")}</div></div>
     <div style="text-align:right; font-size:0.75rem; opacity:0.8;"><div>☁️ {last_up}</div><div>{APP_VERSION[:7]} ({UPDATE_DATE[5:]})</div></div>
 </div>
-""", unsafe_allow_html=True)
+""", unsafe_allow_html=True) 
 
 ui_order = st.session_state.settings.get('order', {})
 for mod_name, _ in sorted(ui_order.items(), key=lambda x: int(x[1])):
@@ -543,7 +546,7 @@ for mod_name, _ in sorted(ui_order.items(), key=lambda x: int(x[1])):
     elif mod_name == "수동조절": render_manual()
     elif mod_name == "기록차감": render_deduct()
     elif mod_name == "활동로그": render_log()
-    elif mod_name == "주간통계": render_stats()
+    elif mod_name == "주간통계": render_stats() 
 
 st.divider()
 if not target_df.empty:
@@ -553,16 +556,12 @@ if not target_df.empty:
         try:
             requests.delete(f"{FIREBASE_URL}users/{username}/logs/{target_df.iloc[-1]['시간']}.json", timeout=5).raise_for_status()
             st.rerun()
-        except: st.error("취소 실패")
+        except: st.error("취소 실패") 
 
 st.markdown(f"""
 <div style="text-align:center; color:#94a3b8; font-size:0.75rem; padding:10px 0 20px;">
     🐾 Smart Pet Care Center<br>
     현재 버전: <strong>{APP_VERSION}</strong> | 📅 업데이트: {UPDATE_DATE}
 </div>
-""", unsafe_allow_html=True)
-
-# 프로그램 버전 정보
-# 현재 버전: v13.7.1 | 업데이트: 2026-04-02
-
-# END
+""", unsafe_allow_html=True) 
+END
