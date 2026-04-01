@@ -9,7 +9,7 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.6.2 (헤더 여백 최적화)"
+APP_VERSION = "v13.7.0 (건강/미용 UI 2분할 개편)"
 UPDATE_DATE = "2026-04-02"
 
 KST = timezone(timedelta(hours=9))
@@ -173,7 +173,6 @@ st.markdown(f"""
 .block-container {{ padding: 0.5rem 0.75rem 6rem 0.75rem !important; max-width: 500px !important; }}
 ::-webkit-scrollbar {{ width: 0px; }}
 
-/* 🔥 헤더 카드 상단 여백 보강 */
 .header-card {{
     display:flex; justify-content:space-between; align-items:center; 
     background:linear-gradient(135deg,#667eea,#764ba2); 
@@ -214,7 +213,20 @@ div.stButton > button {{
     font-size: 0.7rem; margin-left: 5px; font-weight: 800;
 }}
 
-/* 탭 간격 및 터치 영역 유지 */
+/* 🔥 신규 CSS: 최근 기록 표시 박스 스타일 */
+.latest-record-box {{
+    padding: 12px 10px;
+    border-radius: 8px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 1rem;
+}}
+.latest-record-title {{ font-size: 0.7rem; font-weight: 800; margin-bottom: 4px; }}
+.latest-record-content {{ font-size: 0.85rem; font-weight: 700; word-break: break-all; line-height: 1.3; }}
+
 .stTabs [data-baseweb="tab-list"] {{ 
     gap: 25px !important; 
     justify-content: center !important; 
@@ -291,7 +303,6 @@ def get_iso(act_keyword, check_df):
         
         if act_keyword in act:
             if '끄기' in act or '리셋' in act: return ""
-            
             if '(수정)' in act and '[' in act and ']' in act:
                 try:
                     extracted_time = act.split('[')[1].split(']')[0]
@@ -299,7 +310,6 @@ def get_iso(act_keyword, check_df):
                     return f"{date_part}T{extracted_time}+09:00"
                 except:
                     pass
-                    
             return t.replace(" ","T") + "+09:00"
     return ""
 
@@ -313,15 +323,27 @@ def get_real_count(keyword, check_df):
             else: plus += 1
     return max(0, plus - minus)
 
+# 🔥 헬퍼 수정: 최근 기록의 메모 내용까지 함께 파싱하여 반환
 def get_d_day_info(keyword):
-    if df.empty: return "기록 없음", ""
+    if df.empty: return "기록 없음", "", "기록 없음"
     matches = df[df['활동'].str.contains(keyword, na=False)]
-    if matches.empty: return "기록 없음", ""
-    last_dt_str = matches.iloc[-1]['시간'][:10]
+    if matches.empty: return "기록 없음", "", "기록 없음"
+    
+    last_record = matches.iloc[-1]
+    last_dt_str = last_record['시간'][:10]
+    last_act = last_record['활동']
+    
+    # "🏥 병원/약: 심장사상충" 형태에서 메모 내용(심장사상충)만 추출
+    if ":" in last_act:
+        last_memo = last_act.split(":", 1)[1].strip()
+    else:
+        last_memo = last_act
+        
     last_dt = datetime.strptime(last_dt_str, "%Y-%m-%d").date()
     diff = (now_kst().date() - last_dt).days
     d_day_str = f"<span class='d-day-badge'>{diff}일 경과</span>" if diff > 0 else "<span class='d-day-badge'>오늘 완료</span>"
-    return last_dt_str, d_day_str
+    
+    return last_dt_str, d_day_str, last_memo
 
 p_iso = get_iso("소변", target_df)
 d_iso = get_iso("대변", target_df)
@@ -384,27 +406,51 @@ def render_walk():
     with w4:
         if st.button("🦮+💧+💩\n모두 해결", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
 
+# 🔥 핵심 수정: 2분할 레이아웃 및 최근 기록 카드 디자인 적용
 def render_health_beauty():
     st.markdown("<div class='section-header'>🏥 건강 / 미용 관리</div>", unsafe_allow_html=True)
-    l_mh, d_mh = get_d_day_info("🏥 병원/약")
-    l_gr, d_gr = get_d_day_info("✂️ 미용")
+    l_mh, d_mh, memo_mh = get_d_day_info("🏥 병원/약")
+    l_gr, d_gr, memo_gr = get_d_day_info("✂️ 미용")
 
     with st.expander("✨ 상세 기록 관리 (약/병원/미용 메모)", expanded=False):
         ts = now_kst().strftime("%H:%M:%S_%f")
+        
+        # 1. 병원/약
         st.markdown(f"<div class='health-row'><span>🏥 병원/약</span><span class='last-date'>{l_mh} {d_mh}</span></div>", unsafe_allow_html=True)
-        c1, c2 = st.columns([1, 1.5])
-        with c1: d_val = st.date_input("날짜", key="d_mh")
-        with c2: t_val = st.text_input("메모", key="t_mh", placeholder="음성/키보드")
-        if st.button("🏥 기록 저장", use_container_width=True):
-            add_record(f"🏥 병원/약: {t_val}" if t_val else "🏥 병원/약", f"{d_val} {ts}")
+        # 좌측(입력폼) 1.2 : 우측(최근기록) 1 비율 분할
+        c1, c2 = st.columns([1.2, 1])
+        with c1:
+            d_val = st.date_input("날짜", key="d_mh")
+            t_val = st.text_input("메모 (예: 심장사상충)", key="t_mh", placeholder="음성/키보드 입력")
+            if st.button("🏥 기록 저장", use_container_width=True):
+                add_record(f"🏥 병원/약: {t_val}" if t_val else "🏥 병원/약", f"{d_val} {ts}")
+        with c2:
+            st.markdown(f"""
+            <div class='latest-record-box' style='background-color: #fefce8; border-left: 4px solid #facc15;'>
+                <div class='latest-record-title' style='color: #a16207;'>📌 최근 진료/약 기록</div>
+                <div style='font-size:0.65rem; color:#71717a; margin-bottom: 2px;'>{l_mh}</div>
+                <div class='latest-record-content' style='color: #422006;'>{memo_mh}</div>
+            </div>
+            """, unsafe_allow_html=True)
         
         st.divider()
+        
+        # 2. 미용
         st.markdown(f"<div class='health-row'><span>✂️ 미용/목욕</span><span class='last-date'>{l_gr} {d_gr}</span></div>", unsafe_allow_html=True)
-        c3, c4 = st.columns([1, 1.5])
-        with c3: d_grv = st.date_input("날짜", key="d_gr")
-        with c4: t_grv = st.text_input("메모", key="t_gr", placeholder="음성/키보드")
-        if st.button("✂️ 기록 저장", use_container_width=True):
-            add_record(f"✂️ 미용: {t_grv}" if t_grv else "✂️ 미용 및 목욕", f"{d_grv} {ts}")
+        c3, c4 = st.columns([1.2, 1])
+        with c3:
+            d_grv = st.date_input("날짜", key="d_gr")
+            t_grv = st.text_input("메모 (예: 전체미용)", key="t_gr", placeholder="음성/키보드 입력")
+            if st.button("✂️ 기록 저장", use_container_width=True):
+                add_record(f"✂️ 미용: {t_grv}" if t_grv else "✂️ 미용 및 목욕", f"{d_grv} {ts}")
+        with c4:
+            st.markdown(f"""
+            <div class='latest-record-box' style='background-color: #fdf2f8; border-left: 4px solid #f472b6;'>
+                <div class='latest-record-title' style='color: #be185d;'>📌 최근 미용 기록</div>
+                <div style='font-size:0.65rem; color:#71717a; margin-bottom: 2px;'>{l_gr}</div>
+                <div class='latest-record-content' style='color: #831843;'>{memo_gr}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
 def render_manual():
     with st.expander("⚙️ 타이머 수동 조절 / 리셋"):
@@ -513,6 +559,6 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # 프로그램 버전 정보
-# 현재 버전: v13.6.2 | 업데이트: 2026-04-02
+# 현재 버전: v13.7.0 | 업데이트: 2026-04-02
 
 # END
