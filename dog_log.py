@@ -9,8 +9,8 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.6.0 (Manual Override Fix)"
-UPDATE_DATE = "2026-04-01"  # 🚀 최신 업데이트 날짜 반영
+APP_VERSION = "v13.6.1 (UI 탭 간격 최적화)"
+UPDATE_DATE = "2026-04-01"
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
@@ -210,6 +210,19 @@ div.stButton > button {{
     background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 6px;
     font-size: 0.7rem; margin-left: 5px; font-weight: 800;
 }}
+
+/* 🔥 핵심 수정: 탭 간격 및 터치 영역 대폭 확장 */
+.stTabs [data-baseweb="tab-list"] {{ 
+    gap: 25px !important; 
+    justify-content: center !important; 
+}}
+.stTabs [data-baseweb="tab"] {{ 
+    height: 3.2rem !important; 
+    font-weight: 800 !important; 
+    padding: 0 15px !important; 
+}}
+hr {{ margin: 12px 0 !important; }}
+.streamlit-expanderHeader {{ font-weight: 700 !important; font-size: 0.95rem !important; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -500,5 +513,8 @@ st.markdown(f"""
     현재 버전: <strong>{APP_VERSION}</strong> | 📅 업데이트: {UPDATE_DATE}
 </div>
 """, unsafe_allow_html=True)
+
+# 프로그램 버전 정보 
+# 현재 버전: v13.6.1 | 업데이트: 2026-04-01
 
 # END
