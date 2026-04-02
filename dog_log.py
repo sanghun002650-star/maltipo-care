@@ -564,4 +564,4 @@ st.markdown(f"""
     현재 버전: <strong>{APP_VERSION}</strong> | 📅 업데이트: {UPDATE_DATE}
 </div>
 """, unsafe_allow_html=True) 
-END
+###END####
