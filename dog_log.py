@@ -9,8 +9,8 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.7.1 (모바일 가로 분할 강제 적용)"
-UPDATE_DATE = "2026-04-02" 
+APP_VERSION = "v13.7.2 (UI 최적화 및 정렬 보강)"
+UPDATE_DATE = "2026-04-03" 
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
@@ -337,10 +337,12 @@ def get_d_day_info(keyword):
     matches = df[df['활동'].str.contains(keyword, na=False)].copy()
     if matches.empty: return "기록 없음", "", "기록 없음"
     
+    # 시간 기반 정렬 확실히 적용 (마지막 입력이 가장 최신이 되도록 보장)
     matches = matches.sort_values(by='시간', ascending=True)
     
     last_record = matches.iloc[-1]
-    last_dt_str = str(last_record['시간'])[:10]
+    last_dt_full = str(last_record['시간'])
+    last_dt_str = last_dt_full[:10]
     last_act = str(last_record['활동'])
     
     if ":" in last_act:
@@ -503,7 +505,8 @@ def render_deduct():
             if st.button("🦮 산책\n-1", use_container_width=True): add_record("🦮 산책 차감 (-1)") 
 
 def render_log():
-    with st.expander(f"📋 오늘 활동 로그 ({len(target_df)}건)", expanded=True):
+    # 🔥 수정: expanded를 False로 변경하여 시작 시 접혀 있도록 설정
+    with st.expander(f"📋 오늘 활동 로그 ({len(target_df)}건)", expanded=False):
         search = st.text_input("🔍 검색 (예: 산책, 병원)", key="log_search")
         if target_df.empty: st.info("기록 없음")
         else:
@@ -564,4 +567,4 @@ st.markdown(f"""
     현재 버전: <strong>{APP_VERSION}</strong> | 📅 업데이트: {UPDATE_DATE}
 </div>
 """, unsafe_allow_html=True) 
-###END####
+# END
