@@ -9,7 +9,7 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.7.3 (메모장 UI 확대 및 정렬 무결성 검증)"
+APP_VERSION = "v13.7.4 (조회 날짜 연동 및 폰트 균등화)"
 UPDATE_DATE = "2026-04-03" 
 
 KST = timezone(timedelta(hours=9))
@@ -213,20 +213,7 @@ div.stButton > button {{
     font-size: 0.7rem; margin-left: 5px; font-weight: 800;
 }} 
 
-/* 🔥 핵심 수정: 최근 기록 표시 박스 스타일 (크기 확대 및 시인성 강화) */
-.latest-record-box {{
-    padding: 18px 15px;
-    border-radius: 12px;
-    min-height: 110px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    border: 2px solid #e2e8f0;
-    margin-bottom: 1rem;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-}}
-.latest-record-title {{ font-size: 0.85rem; font-weight: 900; margin-bottom: 8px; }}
-.latest-record-content {{ font-size: 1.15rem; font-weight: 900; word-break: break-all; line-height: 1.4; }} 
+/* 메모장 인라인 스타일 적용으로 인한 클래스 삭제 (요청사항 반영) */
 
 .stTabs [data-baseweb="tab-list"] {{ 
     gap: 25px !important; 
@@ -338,7 +325,6 @@ def get_d_day_info(keyword):
     matches = df[df['활동'].str.contains(keyword, na=False)].copy()
     if matches.empty: return "기록 없음", "", "기록 없음"
     
-    # 시간 기반 정렬 확실히 적용 (동일 날짜라도 타임스탬프상 가장 나중 입력이 최신이 되도록 보장)
     matches = matches.sort_values(by='시간', ascending=True)
     
     last_record = matches.iloc[-1]
@@ -356,6 +342,21 @@ def get_d_day_info(keyword):
     d_day_str = f"<span class='d-day-badge'>{diff}일 경과</span>" if diff > 0 else "<span class='d-day-badge'>오늘 완료</span>"
     
     return last_dt_str, d_day_str, last_memo
+
+# 🔥 추가된 헬퍼 함수: 특정 날짜의 기록만 정확히 타겟팅하여 추출
+def get_record_for_date(keyword, target_date_str):
+    if df.empty: return target_date_str, "해당 날짜 기록 없음"
+    matches = df[df['시간'].astype(str).str.startswith(target_date_str) & df['활동'].str.contains(keyword, na=False)].copy()
+    if matches.empty: return target_date_str, "해당 날짜 기록 없음"
+    
+    matches = matches.sort_values(by='시간', ascending=True)
+    last_act = str(matches.iloc[-1]['활동'])
+    
+    if ":" in last_act:
+        memo = last_act.split(":", 1)[1].strip()
+    else:
+        memo = last_act
+    return target_date_str, memo
 
 p_iso = get_iso("소변", target_df)
 d_iso = get_iso("대변", target_df)
@@ -418,47 +419,72 @@ def render_walk():
     with w4:
         if st.button("🦮+💧+💩\n모두 해결", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변") 
 
+# 🔥 집중 수정된 함수: 상태 보존 및 인라인 CSS 폰트 강제 적용
 def render_health_beauty():
     st.markdown("<div class='section-header'>🏥 건강 / 미용 관리</div>", unsafe_allow_html=True)
-    l_mh, d_mh, memo_mh = get_d_day_info("🏥 병원/약")
-    l_gr, d_gr, memo_gr = get_d_day_info("✂️ 미용") 
+    
+    # 상단 뱃지는 기존처럼 전체 데이터의 '최근'을 유지합니다.
+    l_mh, d_mh, _ = get_d_day_info("🏥 병원/약")
+    l_gr, d_gr, _ = get_d_day_info("✂️ 미용") 
 
     with st.expander("✨ 상세 기록 관리 (약/병원/미용 메모)", expanded=False):
         ts = now_kst().strftime("%H:%M:%S_%f")
         
-        # 1. 병원/약
-        st.markdown(f"<div class='health-row'><span>🏥 병원/약</span><span class='last-date'>{l_mh} {d_mh}</span></div>", unsafe_allow_html=True)
+        # 1. 파이어베이스(settings)에서 마지막 조회 날짜 로드 (없으면 오늘)
+        saved_d_mh_str = st.session_state.settings.get("sel_date_mh", now_kst().strftime("%Y-%m-%d"))
+        saved_d_gr_str = st.session_state.settings.get("sel_date_gr", now_kst().strftime("%Y-%m-%d"))
+        
+        saved_d_mh = datetime.strptime(saved_d_mh_str, "%Y-%m-%d").date()
+        saved_d_gr = datetime.strptime(saved_d_gr_str, "%Y-%m-%d").date()
+        
+        # [병원/약 파트]
+        st.markdown(f"<div class='health-row'><span>🏥 병원/약</span><span class='last-date'>전체최근: {l_mh} {d_mh}</span></div>", unsafe_allow_html=True)
         c1, c2 = st.columns([1.2, 1])
         with c1:
-            d_val = st.date_input("날짜", key="d_mh")
+            d_val = st.date_input("날짜", value=saved_d_mh, key="d_mh")
+            
+            # 2. 날짜 변경 감지 시 파이어베이스 즉각 동기화 (앱 재실행 대비)
+            if d_val != saved_d_mh:
+                st.session_state.settings["sel_date_mh"] = d_val.strftime("%Y-%m-%d")
+                save_settings(st.session_state.settings)
+                st.rerun()
+                
             t_val = st.text_input("메모 (예: 심장사상충)", key="t_mh", placeholder="음성/키보드 입력")
             if st.button("🏥 기록 저장", use_container_width=True):
                 add_record(f"🏥 병원/약: {t_val}" if t_val else "🏥 병원/약", f"{d_val} {ts}")
         with c2:
+            date_mh, memo_mh = get_record_for_date("🏥 병원/약", d_val.strftime("%Y-%m-%d"))
+            # 3. 다른 곳에 영향 없도록 인라인(Inline) 스타일만 사용, 날짜와 메모 텍스트 사이즈를 1.1rem으로 완벽 동일화
             st.markdown(f"""
-            <div class='latest-record-box' style='background-color: #fefce8; border-left: 6px solid #facc15;'>
-                <div class='latest-record-title' style='color: #a16207;'>📌 최근 진료/약 기록</div>
-                <div style='font-size:0.75rem; color:#71717a; margin-bottom: 4px;'>기준일: {l_mh}</div>
-                <div class='latest-record-content' style='color: #422006;'>{memo_mh}</div>
+            <div style='padding: 18px 15px; border-radius: 12px; min-height: 110px; display: flex; flex-direction: column; justify-content: center; border: 2px solid #e2e8f0; margin-bottom: 1rem; box-shadow: 0 4px 10px rgba(0,0,0,0.05); background-color: #fefce8; border-left: 6px solid #facc15;'>
+                <div style='font-size: 0.85rem; font-weight: 900; margin-bottom: 8px; color: #a16207;'>📌 선택일 진료/약 기록</div>
+                <div style='font-size: 1.1rem; font-weight: 900; color: #52525b; margin-bottom: 4px;'>📅 {date_mh}</div>
+                <div style='font-size: 1.1rem; font-weight: 900; color: #422006; word-break: break-all; line-height: 1.4;'>📝 {memo_mh}</div>
             </div>
             """, unsafe_allow_html=True)
         
         st.divider()
         
-        # 2. 미용
-        st.markdown(f"<div class='health-row'><span>✂️ 미용/목욕</span><span class='last-date'>{l_gr} {d_gr}</span></div>", unsafe_allow_html=True)
+        # [미용 파트]
+        st.markdown(f"<div class='health-row'><span>✂️ 미용/목욕</span><span class='last-date'>전체최근: {l_gr} {d_gr}</span></div>", unsafe_allow_html=True)
         c3, c4 = st.columns([1.2, 1])
         with c3:
-            d_grv = st.date_input("날짜", key="d_gr")
+            d_grv = st.date_input("날짜", value=saved_d_gr, key="d_gr")
+            if d_grv != saved_d_gr:
+                st.session_state.settings["sel_date_gr"] = d_grv.strftime("%Y-%m-%d")
+                save_settings(st.session_state.settings)
+                st.rerun()
+                
             t_grv = st.text_input("메모 (예: 전체미용)", key="t_gr", placeholder="음성/키보드 입력")
             if st.button("✂️ 기록 저장", use_container_width=True):
                 add_record(f"✂️ 미용: {t_grv}" if t_grv else "✂️ 미용 및 목욕", f"{d_grv} {ts}")
         with c4:
+            date_gr, memo_gr = get_record_for_date("✂️ 미용", d_grv.strftime("%Y-%m-%d"))
             st.markdown(f"""
-            <div class='latest-record-box' style='background-color: #fdf2f8; border-left: 6px solid #f472b6;'>
-                <div class='latest-record-title' style='color: #be185d;'>📌 최근 미용 기록</div>
-                <div style='font-size:0.75rem; color:#71717a; margin-bottom: 4px;'>기준일: {l_gr}</div>
-                <div class='latest-record-content' style='color: #831843;'>{memo_gr}</div>
+            <div style='padding: 18px 15px; border-radius: 12px; min-height: 110px; display: flex; flex-direction: column; justify-content: center; border: 2px solid #e2e8f0; margin-bottom: 1rem; box-shadow: 0 4px 10px rgba(0,0,0,0.05); background-color: #fdf2f8; border-left: 6px solid #f472b6;'>
+                <div style='font-size: 0.85rem; font-weight: 900; margin-bottom: 8px; color: #be185d;'>📌 선택일 미용 기록</div>
+                <div style='font-size: 1.1rem; font-weight: 900; color: #52525b; margin-bottom: 4px;'>📅 {date_gr}</div>
+                <div style='font-size: 1.1rem; font-weight: 900; color: #831843; word-break: break-all; line-height: 1.4;'>📝 {memo_gr}</div>
             </div>
             """, unsafe_allow_html=True) 
 
