@@ -9,7 +9,7 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.0.0 (프리미엄 카드 UI & 원형 타이머)"
+APP_VERSION = "v14.1.0 (에어리 라이트 테마 적용)"
 UPDATE_DATE = "2026-04-03"
 
 KST = timezone(timedelta(hours=9))
@@ -207,15 +207,15 @@ st.markdown(f"""
 .block-container {{ padding: 1.5rem 1rem 6rem 1rem !important; max-width: 550px !important; }}
 ::-webkit-scrollbar {{ width: 0px; }} 
 
-/* 2. 네츄럴 톤의 세련된 헤더 카드 */
+/* 2. 네츄럴 톤의 세련된 헤더 카드 (30년 디자이너 추천: 맑은 스카이 블루 미색) */
 .header-card {{
     display:flex; justify-content:space-between; align-items:center; 
-    background:linear-gradient(135deg, #334155, #1e293b); 
+    background:linear-gradient(135deg, #f0f9ff, #e0f2fe); 
     border-radius:24px; 
     padding: 30px 25px 25px 25px; 
-    margin-bottom:20px; color:white;
+    margin-bottom:20px; color:#0f172a;
     min-height: 95px; line-height: 1.4; 
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.15);
+    box-shadow: 0 10px 30px rgba(149, 157, 165, 0.15);
 }} 
 
 /* 3. 흰색 카드형 모듈 스타일 (Glass/Neumorphism) */
@@ -290,15 +290,7 @@ hr {{ margin: 15px 0 !important; border-color: #f1f5f9 !important; }}
 # ==========================================
 with st.sidebar:
     st.markdown(f"### ⚙️ {username}님")
-    _ldg = st.session_state.pet_ledger
-    _cur_month = now_kst().strftime("%Y-%m")
-    _monthly_total = int(_ldg[_ldg["날짜"].astype(str).str.startswith(_cur_month)]["금액"].sum()) if not _ldg.empty else 0
-    st.markdown(f"""
-    <div style='background:linear-gradient(135deg,#334155,#1e293b); border-radius:18px; padding:16px 16px; color:white; margin-bottom:15px; text-align:center;'>
-        <div style='font-size:0.75rem; font-weight:800; opacity:0.9; letter-spacing:0.5px;'>💰 {now_kst().strftime("%m월")} 총지출</div>
-        <div style='font-size:2.2rem; font-weight:900; line-height:1.2; margin-top:5px;'>{_monthly_total:,}원</div>
-    </div>
-    """, unsafe_allow_html=True)
+    
     if st.button("🔒 로그아웃", use_container_width=True):
         cookie_manager.delete("saved_username")
         st.session_state.force_logout = True
@@ -335,6 +327,18 @@ with st.sidebar:
             save_profile(st.session_state.profile)
             st.success("✅ 저장 완료!")
             st.rerun()
+
+    # 반려견 정보 수정 아래로 총지출 이동 및 디자인(크기/색상) 수정
+    _ldg = st.session_state.pet_ledger
+    _cur_month = now_kst().strftime("%Y-%m")
+    _monthly_total = int(_ldg[_ldg["날짜"].astype(str).str.startswith(_cur_month)]["금액"].sum()) if not _ldg.empty else 0
+    
+    st.markdown(f"""
+    <div style='background:linear-gradient(135deg, #fdfbfb, #f4f5f7); border: 1px solid #e2e8f0; border-radius:16px; padding:15px; margin-top:20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);'>
+        <div style='font-size:0.9rem; font-weight:800; color:#64748b; margin-bottom:4px;'>💰 {now_kst().strftime("%m월")} 총지출</div>
+        <div style='font-size:1.05rem; font-weight:900; color:#334155;'>{_monthly_total:,}원</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ==========================================
 # 📊 데이터 헬퍼
@@ -423,7 +427,6 @@ d_time_str = d_iso[11:16] if d_iso else "--:--"
 # 🧱 UI 모듈
 # ==========================================
 def render_timer():
-    # 시각적 계층화(원형 타이머) + 내추럴 컬러 적용 (Sky Blue & Warm Terracotta)
     components.html(f"""
     <div style="display:flex; justify-content:space-between; gap:15px; font-family:sans-serif;">
         <div style="flex:1; background:#ffffff; border-radius:24px; padding:20px 10px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); position:relative;">
@@ -474,7 +477,6 @@ def render_timer():
     """, height=220)
 
 def render_summary():
-    # 성취감을 주는 대시보드 형태의 카드 UI 도입 & 소프트 라임 포인트 컬러
     p, d, w = get_real_count('소변', target_df), get_real_count('대변', target_df), get_real_count('산책', target_df)
     st.markdown(f"""
     <div style="background:#ffffff; border-radius:24px; padding:25px 20px; box-shadow:0 8px 24px rgba(149,157,165,0.08); margin-bottom:20px;">
@@ -488,7 +490,6 @@ def render_summary():
     """, unsafe_allow_html=True)
 
 def render_poo_pee():
-    # 긴 텍스트를 줄이고 이모지 직관성을 극대화한 버튼 스타일
     st.markdown("<div class='section-header'>🚨 실내 배변</div>", unsafe_allow_html=True)
     b1, b2 = st.columns(2)
     with b1:
@@ -724,10 +725,10 @@ last_up = str(df.iloc[-1]['시간'])[:19] if not df.empty else "없음"
 st.markdown(f"""
 <div class="header-card">
     <div>
-        <div style="font-size:1.6rem; font-weight:900; margin-bottom:5px;">🐾 {pet_n} 센터</div>
-        <div style="font-size:0.85rem; font-weight:700; color:#cbd5e1;">{now_kst().strftime("%m월 %d일 (%a) %H:%M")}</div>
+        <div style="font-size:1.6rem; font-weight:900; margin-bottom:5px; color:#0f172a;">🐾 {pet_n} 센터</div>
+        <div style="font-size:0.85rem; font-weight:700; color:#475569;">{now_kst().strftime("%m월 %d일 (%a) %H:%M")}</div>
     </div>
-    <div style="text-align:right; font-size:0.75rem; color:#94a3b8; font-weight:600;">
+    <div style="text-align:right; font-size:0.75rem; color:#64748b; font-weight:600;">
         <div style="margin-bottom:5px;">☁️ {last_up}</div>
         <div>{APP_VERSION[:7]}</div>
     </div>
