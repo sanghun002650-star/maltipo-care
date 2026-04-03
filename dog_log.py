@@ -585,12 +585,12 @@ def render_log():
             st.dataframe(log_display, use_container_width=True, column_config={"시간": st.column_config.TextColumn("🕐 시간", width="small"), "활동": st.column_config.TextColumn("📝 활동")})
 
 def render_ledger():
-    # 가계부 전용 1.5배 확대 CSS
+    # 가계부 전용 1.2배 확대 CSS
     # 최신 CSS :has() 선택자와 자식 결합자(>)를 사용하여 내부의 '지출 입력' 익스팬더에는 영향을 주지 않고, 오직 최상단 가계부 익스팬더만 완벽히 격리 타겟팅합니다.
     st.markdown("""
     <style>
     div[data-testid="stExpander"]:has(.ledger-unique-marker) > details > summary {
-        padding: 20px 15px !important;
+        padding: 16px 15px !important;
         background: linear-gradient(135deg, #f8fafc, #e2e8f0) !important;
         border-radius: 14px !important;
         border: 2px solid #cbd5e1 !important;
@@ -598,13 +598,13 @@ def render_ledger():
         box-shadow: 0 4px 10px rgba(0,0,0,0.05) !important;
     }
     div[data-testid="stExpander"]:has(.ledger-unique-marker) > details > summary p {
-        font-size: 1.45rem !important; /* 기존 0.95rem 대비 약 1.5배 확대 */
+        font-size: 1.15rem !important; /* 기존 0.95rem 대비 약 1.2배 확대 */
         font-weight: 900 !important;
         color: #0f172a !important;
     }
     div[data-testid="stExpander"]:has(.ledger-unique-marker) > details > summary svg {
-        width: 1.8rem !important; /* 화살표 아이콘 확대 */
-        height: 1.8rem !important;
+        width: 1.4rem !important; /* 화살표 아이콘 확대 비율 조정 */
+        height: 1.4rem !important;
         color: #475569 !important;
     }
     </style>
