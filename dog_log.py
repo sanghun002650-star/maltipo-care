@@ -9,7 +9,7 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v13.7.2 (UI 최적화 및 정렬 보강)"
+APP_VERSION = "v13.7.3 (메모장 UI 확대 및 정렬 무결성 검증)"
 UPDATE_DATE = "2026-04-03" 
 
 KST = timezone(timedelta(hours=9))
@@ -213,19 +213,20 @@ div.stButton > button {{
     font-size: 0.7rem; margin-left: 5px; font-weight: 800;
 }} 
 
-/* 최근 기록 표시 박스 스타일 */
+/* 🔥 핵심 수정: 최근 기록 표시 박스 스타일 (크기 확대 및 시인성 강화) */
 .latest-record-box {{
-    padding: 12px 10px;
-    border-radius: 8px;
-    height: 100%;
+    padding: 18px 15px;
+    border-radius: 12px;
+    min-height: 110px;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    border: 1px solid #e2e8f0;
+    border: 2px solid #e2e8f0;
     margin-bottom: 1rem;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
 }}
-.latest-record-title {{ font-size: 0.7rem; font-weight: 800; margin-bottom: 4px; }}
-.latest-record-content {{ font-size: 0.85rem; font-weight: 700; word-break: break-all; line-height: 1.3; }} 
+.latest-record-title {{ font-size: 0.85rem; font-weight: 900; margin-bottom: 8px; }}
+.latest-record-content {{ font-size: 1.15rem; font-weight: 900; word-break: break-all; line-height: 1.4; }} 
 
 .stTabs [data-baseweb="tab-list"] {{ 
     gap: 25px !important; 
@@ -239,7 +240,7 @@ div.stButton > button {{
 hr {{ margin: 12px 0 !important; }}
 .streamlit-expanderHeader {{ font-weight: 700 !important; font-size: 0.95rem !important; }} 
 
-/* 🔥 핵심 수정: 모바일 환경에서 컬럼(st.columns)이 세로로 꺾이지 않게 강제 가로 배열 설정 */
+/* 모바일 환경에서 컬럼이 세로로 꺾이지 않게 강제 가로 배열 설정 */
 @media (max-width: 768px) {{
     div[data-testid="stHorizontalBlock"] {{
         flex-direction: row !important;
@@ -337,7 +338,7 @@ def get_d_day_info(keyword):
     matches = df[df['활동'].str.contains(keyword, na=False)].copy()
     if matches.empty: return "기록 없음", "", "기록 없음"
     
-    # 시간 기반 정렬 확실히 적용 (마지막 입력이 가장 최신이 되도록 보장)
+    # 시간 기반 정렬 확실히 적용 (동일 날짜라도 타임스탬프상 가장 나중 입력이 최신이 되도록 보장)
     matches = matches.sort_values(by='시간', ascending=True)
     
     last_record = matches.iloc[-1]
@@ -435,9 +436,9 @@ def render_health_beauty():
                 add_record(f"🏥 병원/약: {t_val}" if t_val else "🏥 병원/약", f"{d_val} {ts}")
         with c2:
             st.markdown(f"""
-            <div class='latest-record-box' style='background-color: #fefce8; border-left: 4px solid #facc15;'>
+            <div class='latest-record-box' style='background-color: #fefce8; border-left: 6px solid #facc15;'>
                 <div class='latest-record-title' style='color: #a16207;'>📌 최근 진료/약 기록</div>
-                <div style='font-size:0.65rem; color:#71717a; margin-bottom: 2px;'>{l_mh}</div>
+                <div style='font-size:0.75rem; color:#71717a; margin-bottom: 4px;'>기준일: {l_mh}</div>
                 <div class='latest-record-content' style='color: #422006;'>{memo_mh}</div>
             </div>
             """, unsafe_allow_html=True)
@@ -454,15 +455,15 @@ def render_health_beauty():
                 add_record(f"✂️ 미용: {t_grv}" if t_grv else "✂️ 미용 및 목욕", f"{d_grv} {ts}")
         with c4:
             st.markdown(f"""
-            <div class='latest-record-box' style='background-color: #fdf2f8; border-left: 4px solid #f472b6;'>
+            <div class='latest-record-box' style='background-color: #fdf2f8; border-left: 6px solid #f472b6;'>
                 <div class='latest-record-title' style='color: #be185d;'>📌 최근 미용 기록</div>
-                <div style='font-size:0.65rem; color:#71717a; margin-bottom: 2px;'>{l_gr}</div>
+                <div style='font-size:0.75rem; color:#71717a; margin-bottom: 4px;'>기준일: {l_gr}</div>
                 <div class='latest-record-content' style='color: #831843;'>{memo_gr}</div>
             </div>
             """, unsafe_allow_html=True) 
 
 def render_manual():
-    with st.expander("⚙️ 타이머 수동 조절 / 리셋"):
+    with st.expander("⚙️ 타이머 수 초 수동 조절 / 리셋"):
         st.info("오늘 날짜를 기준으로 시간을 수정합니다.")
         t1, t2 = st.tabs(["💧 소변", "💩 대변"])
         with t1:
@@ -505,7 +506,6 @@ def render_deduct():
             if st.button("🦮 산책\n-1", use_container_width=True): add_record("🦮 산책 차감 (-1)") 
 
 def render_log():
-    # 🔥 수정: expanded를 False로 변경하여 시작 시 접혀 있도록 설정
     with st.expander(f"📋 오늘 활동 로그 ({len(target_df)}건)", expanded=False):
         search = st.text_input("🔍 검색 (예: 산책, 병원)", key="log_search")
         if target_df.empty: st.info("기록 없음")
