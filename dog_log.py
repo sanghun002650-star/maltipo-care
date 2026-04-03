@@ -385,7 +385,6 @@ def get_d_day_info(keyword):
     
     return last_dt_str, d_day_str, last_memo
 
-# 🔥 추가된 헬퍼 함수: 특정 날짜의 기록만 정확히 타겟팅하여 추출
 def get_record_for_date(keyword, target_date_str):
     if df.empty: return target_date_str, "해당 날짜 기록 없음"
     matches = df[df['시간'].astype(str).str.startswith(target_date_str) & df['활동'].str.contains(keyword, na=False)].copy()
@@ -461,7 +460,6 @@ def render_walk():
     with w4:
         if st.button("🦮+💧+💩\n모두 해결", use_container_width=True): add_record("🦮+💦+💩 산책 중 소변과 대변")
 
-# 🔥 집중 수정된 함수: 상태 보존 및 인라인 CSS 폰트 강제 적용
 def render_health_beauty():
     st.markdown("<div class='section-header'>🏥 건강 / 미용 관리</div>", unsafe_allow_html=True)
     
@@ -587,66 +585,93 @@ def render_log():
             st.dataframe(log_display, use_container_width=True, column_config={"시간": st.column_config.TextColumn("🕐 시간", width="small"), "활동": st.column_config.TextColumn("📝 활동")})
 
 def render_ledger():
-    st.markdown("<div class='section-header'>💰 반려견 가계부</div>", unsafe_allow_html=True)
-
-    CATS = ["사료", "간식", "배변패드", "의료비", "기타"]
-    CAT_ICONS = {"사료": "🍚", "간식": "🦴", "배변패드": "📦", "의료비": "🏥", "기타": "📝"}
-
-    ldg = st.session_state.pet_ledger
-    cur_month = now_kst().strftime("%Y-%m")
-    monthly_ldg = ldg[ldg["날짜"].astype(str).str.startswith(cur_month)].copy() if not ldg.empty else pd.DataFrame(columns=["키","날짜","카테고리","금액","메모"])
-    total = int(monthly_ldg["금액"].sum()) if not monthly_ldg.empty else 0
-
-    # 이번 달 합계 헤더
-    st.markdown(f"""
-    <div style='background:linear-gradient(135deg,#667eea,#764ba2); border-radius:16px; padding:14px 18px; color:white; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;'>
-        <div style='font-size:0.85rem; font-weight:800; opacity:0.9;'>💰 {now_kst().strftime("%m월")} 총지출</div>
-        <div style='font-size:1.8rem; font-weight:900;'>{total:,}원</div>
-    </div>
+    # 가계부 전용 1.5배 확대 CSS
+    # 최신 CSS :has() 선택자와 자식 결합자(>)를 사용하여 내부의 '지출 입력' 익스팬더에는 영향을 주지 않고, 오직 최상단 가계부 익스팬더만 완벽히 격리 타겟팅합니다.
+    st.markdown("""
+    <style>
+    div[data-testid="stExpander"]:has(.ledger-unique-marker) > details > summary {
+        padding: 20px 15px !important;
+        background: linear-gradient(135deg, #f8fafc, #e2e8f0) !important;
+        border-radius: 14px !important;
+        border: 2px solid #cbd5e1 !important;
+        margin-bottom: 10px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05) !important;
+    }
+    div[data-testid="stExpander"]:has(.ledger-unique-marker) > details > summary p {
+        font-size: 1.45rem !important; /* 기존 0.95rem 대비 약 1.5배 확대 */
+        font-weight: 900 !important;
+        color: #0f172a !important;
+    }
+    div[data-testid="stExpander"]:has(.ledger-unique-marker) > details > summary svg {
+        width: 1.8rem !important; /* 화살표 아이콘 확대 */
+        height: 1.8rem !important;
+        color: #475569 !important;
+    }
+    </style>
     """, unsafe_allow_html=True)
 
-    # 카테고리별 지출 요약 (지출이 있는 카테고리만)
-    if not monthly_ldg.empty:
-        cat_totals = monthly_ldg.groupby("카테고리")["금액"].sum().to_dict()
-        active_cats = [(c, cat_totals[c]) for c in CATS if c in cat_totals and cat_totals[c] > 0]
-        if active_cats:
-            boxes = "".join([
-                f"<div class='metric-box'><div class='metric-label'>{CAT_ICONS.get(c,'')}&nbsp;{c}</div><div style='font-size:1rem; font-weight:900; color:#0f172a;'>{int(amt):,}원</div></div>"
-                for c, amt in active_cats
-            ])
-            st.markdown(f"<div class='horizontal-metrics'>{boxes}</div>", unsafe_allow_html=True)
+    with st.expander("💰 반려견 가계부 (터치하여 펼치기)", expanded=False):
+        # 상위 익스팬더를 CSS로 역추적하기 위한 투명한 마커(Marker)
+        st.markdown('<div class="ledger-unique-marker"></div>', unsafe_allow_html=True)
 
-    # 지출 입력 폼
-    with st.expander("➕ 지출 입력", expanded=False):
-        lc1, lc2 = st.columns(2)
-        with lc1:
-            l_date = st.date_input("날짜", value=now_kst().date(), key="l_date")
-            l_cat  = st.selectbox("카테고리", CATS, key="l_cat")
-        with lc2:
-            l_amt  = st.number_input("금액 (원)", min_value=0, step=100, key="l_amt")
-            l_memo = st.text_input("메모", key="l_memo", placeholder="예: 로얄캐닌 2kg")
-        if st.button("💾 지출 저장", use_container_width=True, type="primary", key="btn_ledger_save"):
-            if l_amt > 0:
-                add_ledger_entry(l_date.strftime("%Y-%m-%d"), l_cat, int(l_amt), l_memo)
-            else:
-                st.warning("금액을 입력하세요.")
+        CATS = ["사료", "간식", "배변패드", "의료비", "기타"]
+        CAT_ICONS = {"사료": "🍚", "간식": "🦴", "배변패드": "📦", "의료비": "🏥", "기타": "📝"}
 
-    # 이번 달 지출 내역 테이블
-    if not monthly_ldg.empty:
-        disp = monthly_ldg[["날짜","카테고리","금액","메모"]].sort_values("날짜", ascending=False).reset_index(drop=True)
-        disp.index += 1
-        st.dataframe(disp, use_container_width=True, column_config={
-            "날짜": st.column_config.TextColumn("📅 날짜", width="small"),
-            "카테고리": st.column_config.TextColumn("🏷️", width="small"),
-            "금액": st.column_config.NumberColumn("💰 금액", format="%d원"),
-            "메모": st.column_config.TextColumn("📝 메모"),
-        })
-        # 직전 항목 취소
-        last_row = monthly_ldg.sort_values("날짜", ascending=False).iloc[0]
-        if st.button(f"❌ 직전 취소: {last_row['카테고리']} {int(last_row['금액']):,}원", use_container_width=True, key="btn_ledger_del"):
-            delete_ledger_entry(str(last_row["키"]))
-    else:
-        st.info("이번 달 지출 내역이 없습니다.")
+        ldg = st.session_state.pet_ledger
+        cur_month = now_kst().strftime("%Y-%m")
+        monthly_ldg = ldg[ldg["날짜"].astype(str).str.startswith(cur_month)].copy() if not ldg.empty else pd.DataFrame(columns=["키","날짜","카테고리","금액","메모"])
+        total = int(monthly_ldg["금액"].sum()) if not monthly_ldg.empty else 0
+
+        # 이번 달 합계 헤더
+        st.markdown(f"""
+        <div style='background:linear-gradient(135deg,#667eea,#764ba2); border-radius:16px; padding:14px 18px; color:white; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;'>
+            <div style='font-size:0.85rem; font-weight:800; opacity:0.9;'>💰 {now_kst().strftime("%m월")} 총지출</div>
+            <div style='font-size:1.8rem; font-weight:900;'>{total:,}원</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 카테고리별 지출 요약 (지출이 있는 카테고리만)
+        if not monthly_ldg.empty:
+            cat_totals = monthly_ldg.groupby("카테고리")["금액"].sum().to_dict()
+            active_cats = [(c, cat_totals[c]) for c in CATS if c in cat_totals and cat_totals[c] > 0]
+            if active_cats:
+                boxes = "".join([
+                    f"<div class='metric-box'><div class='metric-label'>{CAT_ICONS.get(c,'')}&nbsp;{c}</div><div style='font-size:1rem; font-weight:900; color:#0f172a;'>{int(amt):,}원</div></div>"
+                    for c, amt in active_cats
+                ])
+                st.markdown(f"<div class='horizontal-metrics'>{boxes}</div>", unsafe_allow_html=True)
+
+        # 지출 입력 폼
+        with st.expander("➕ 지출 입력", expanded=False):
+            lc1, lc2 = st.columns(2)
+            with lc1:
+                l_date = st.date_input("날짜", value=now_kst().date(), key="l_date")
+                l_cat  = st.selectbox("카테고리", CATS, key="l_cat")
+            with lc2:
+                l_amt  = st.number_input("금액 (원)", min_value=0, step=100, key="l_amt")
+                l_memo = st.text_input("메모", key="l_memo", placeholder="예: 로얄캐닌 2kg")
+            if st.button("💾 지출 저장", use_container_width=True, type="primary", key="btn_ledger_save"):
+                if l_amt > 0:
+                    add_ledger_entry(l_date.strftime("%Y-%m-%d"), l_cat, int(l_amt), l_memo)
+                else:
+                    st.warning("금액을 입력하세요.")
+
+        # 이번 달 지출 내역 테이블
+        if not monthly_ldg.empty:
+            disp = monthly_ldg[["날짜","카테고리","금액","메모"]].sort_values("날짜", ascending=False).reset_index(drop=True)
+            disp.index += 1
+            st.dataframe(disp, use_container_width=True, column_config={
+                "날짜": st.column_config.TextColumn("📅 날짜", width="small"),
+                "카테고리": st.column_config.TextColumn("🏷️", width="small"),
+                "금액": st.column_config.NumberColumn("💰 금액", format="%d원"),
+                "메모": st.column_config.TextColumn("📝 메모"),
+            })
+            # 직전 항목 취소
+            last_row = monthly_ldg.sort_values("날짜", ascending=False).iloc[0]
+            if st.button(f"❌ 직전 취소: {last_row['카테고리']} {int(last_row['금액']):,}원", use_container_width=True, key="btn_ledger_del"):
+                delete_ledger_entry(str(last_row["키"]))
+        else:
+            st.info("이번 달 지출 내역이 없습니다.")
 
 def render_stats():
     with st.expander("📊 주간 배변 통계"):
