@@ -9,8 +9,8 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.1.0 (에어리 라이트 테마 적용)"
-UPDATE_DATE = "2026-04-03"
+APP_VERSION = "v14.2.0 (온보딩 퍼시스턴스 적용)"
+UPDATE_DATE = "2026-04-04"
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
@@ -286,6 +286,142 @@ hr {{ margin: 15px 0 !important; border-color: #f1f5f9 !important; }}
 """, unsafe_allow_html=True)
 
 # ==========================================
+# 🎯 온보딩 마법사 (초기 설정)
+# ==========================================
+def _onboarding_init_step():
+    """프로필 상태를 보고 온보딩 시작 단계를 결정합니다."""
+    p = st.session_state.profile
+    name_set = p.get('pet_name', '').strip() and p.get('pet_name') != '강아지'
+    if not name_set:
+        return 1
+    elif not p.get('birth', '').strip():
+        return 2
+    else:
+        return 3
+
+def show_onboarding():
+    TOTAL_STEPS = 3
+    step = st.session_state.get('onboarding_step', 1)
+    p = st.session_state.profile
+
+    # 헤더
+    st.markdown(f"""
+    <div style='text-align:center; padding: 30px 0 15px;'>
+        <div style='font-size:3.2rem;'>🐾</div>
+        <div style='font-size:1.5rem; font-weight:900; color:#1e293b; margin-top:10px;'>Smart Pet Care 시작하기</div>
+        <div style='font-size:0.85rem; color:#64748b; margin-top:6px;'>반려견 정보를 단계별로 입력해 주세요</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 진행 바 + 단계 표시
+    st.progress(step / TOTAL_STEPS, text=f"단계 {step} / {TOTAL_STEPS}")
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --- STEP 1: 이름 ---
+    if step == 1:
+        st.markdown("""
+        <div style='background:#f0f9ff; border-radius:20px; padding:22px 20px; margin-bottom:20px;
+                    border-left:5px solid #38bdf8;'>
+            <div style='font-size:1.1rem; font-weight:900; color:#0369a1;'>🐶 반려견 이름</div>
+            <div style='font-size:0.85rem; color:#64748b; margin-top:4px;'>이름을 알려주시면 앱 전체에서 표시됩니다.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        default_name = p.get('pet_name', '') if p.get('pet_name') != '강아지' else ''
+        pet_name = st.text_input("강아지 이름", value=default_name,
+                                  placeholder="예: 몰티, 콩이, 보리", key="ob_name",
+                                  label_visibility="collapsed")
+
+        if st.button("다음으로 →", use_container_width=True, type="primary", key="ob_next_1"):
+            if pet_name.strip():
+                p['pet_name'] = pet_name.strip()
+                save_profile(p)                          # 즉시 Firebase 저장
+                st.session_state.profile = p
+                st.session_state.onboarding_step = 2
+                st.rerun()
+            else:
+                st.warning("이름을 입력해주세요.")
+
+    # --- STEP 2: 생년월일 ---
+    elif step == 2:
+        pet_name = p.get('pet_name', '강아지')
+        st.markdown(f"""
+        <div style='background:#fff7ed; border-radius:20px; padding:22px 20px; margin-bottom:20px;
+                    border-left:5px solid #fb923c;'>
+            <div style='font-size:1.1rem; font-weight:900; color:#c2410c;'>🎂 {pet_name}의 생년월일</div>
+            <div style='font-size:0.85rem; color:#64748b; margin-top:4px;'>나이 계산 및 건강 관리에 활용됩니다.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        birth = st.text_input("생년월일 (YYYY-MM-DD)", value=p.get('birth', ''),
+                               placeholder="예: 2022-03-15", key="ob_birth",
+                               label_visibility="collapsed")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("← 이전", use_container_width=True, key="ob_prev_2"):
+                st.session_state.onboarding_step = 1
+                st.rerun()
+        with col2:
+            if st.button("다음으로 →", use_container_width=True, type="primary", key="ob_next_2"):
+                if birth.strip():
+                    p['birth'] = birth.strip()
+                    save_profile(p)                      # 즉시 Firebase 저장
+                    st.session_state.profile = p
+                    st.session_state.onboarding_step = 3
+                    st.rerun()
+                else:
+                    st.warning("생년월일을 입력해주세요.")
+
+    # --- STEP 3: 몸무게 · 성별 · 메모 ---
+    elif step == 3:
+        pet_name = p.get('pet_name', '강아지')
+        st.markdown(f"""
+        <div style='background:#f0fdf4; border-radius:20px; padding:22px 20px; margin-bottom:20px;
+                    border-left:5px solid #4ade80;'>
+            <div style='font-size:1.1rem; font-weight:900; color:#15803d;'>⚖️ {pet_name}의 기본 정보</div>
+            <div style='font-size:0.85rem; color:#64748b; margin-top:4px;'>마지막 단계입니다! 나중에 사이드바에서도 수정 가능합니다.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        weight = st.text_input("몸무게 (kg)", value=p.get('weight', ''),
+                                placeholder="예: 3.2", key="ob_weight")
+        gender_options = ["수컷", "암컷", "중성화 수컷", "중성화 암컷", "기타"]
+        curr_g = p.get('gender', '수컷')
+        gender = st.selectbox("성별", gender_options,
+                               index=gender_options.index(curr_g) if curr_g in gender_options else 0,
+                               key="ob_gender")
+        memo = st.text_area("특이사항 (선택)", value=p.get('memo', ''),
+                             placeholder="예: 알러지 주의, 투약 중 등", height=80, key="ob_memo")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("← 이전", use_container_width=True, key="ob_prev_3"):
+                st.session_state.onboarding_step = 2
+                st.rerun()
+        with col2:
+            if st.button("설정 완료 🎉", use_container_width=True, type="primary", key="ob_finish"):
+                p.update({'weight': weight, 'gender': gender, 'memo': memo})
+                save_profile(p)                          # 즉시 Firebase 저장
+                st.session_state.profile = p
+                st.session_state.pop('onboarding_step', None)   # 온보딩 단계 초기화
+                st.success(f"✅ {pet_name} 정보 저장 완료! 잠시 후 메인 화면으로 이동합니다.")
+                time.sleep(0.8)
+                st.rerun()
+
+    # 하단 안내
+    st.markdown(f"""
+    <div style='text-align:center; color:#94a3b8; font-size:0.75rem; margin-top:30px; font-weight:600;'>
+        💾 입력하신 정보는 각 단계마다 자동 저장됩니다<br>
+        앱을 종료하더라도 다음 실행 시 이어서 진행됩니다
+    </div>
+    """, unsafe_allow_html=True)
+
+# --- 온보딩 게이트: birth 가 비어있으면 온보딩 진행 ---
+if not st.session_state.profile.get('birth', '').strip():
+    if 'onboarding_step' not in st.session_state:
+        st.session_state.onboarding_step = _onboarding_init_step()
+    show_onboarding()
+    st.stop()
+
+# ==========================================
 # ⚙️ 사이드바
 # ==========================================
 with st.sidebar:
@@ -315,17 +451,21 @@ with st.sidebar:
             st.rerun() 
 
     with st.expander("📝 반려견 정보 수정"):
+        # 온보딩에서 저장한 값이 자동으로 여기에 반영됩니다 (양방향 연동)
         p_name   = st.text_input("🐶 이름",   value=st.session_state.profile.get('pet_name',''))
-        p_birth  = st.text_input("🎂 생년월일", value=st.session_state.profile.get('birth',''))
+        p_birth  = st.text_input("🎂 생년월일", value=st.session_state.profile.get('birth',''),
+                                  placeholder="YYYY-MM-DD")
         p_weight = st.text_input("⚖️ 몸무게",  value=st.session_state.profile.get('weight',''))
         gender_options = ["수컷","암컷","중성화 수컷","중성화 암컷","기타"]
         curr_g = st.session_state.profile.get('gender','수컷')
         p_gender = st.selectbox("🐾 성별", gender_options, index=gender_options.index(curr_g) if curr_g in gender_options else 0)
         p_memo = st.text_area("🗒️ 기타", value=st.session_state.profile.get('memo',''), height=80)
         if st.button("☁️ 정보 저장", use_container_width=True):
-            st.session_state.profile.update({"pet_name":p_name,"birth":p_birth, "weight":p_weight,"gender":p_gender,"memo":p_memo})
+            # session_state 업데이트 → Firebase 저장 (선순환 구조)
+            st.session_state.profile.update({"pet_name":p_name,"birth":p_birth,
+                                             "weight":p_weight,"gender":p_gender,"memo":p_memo})
             save_profile(st.session_state.profile)
-            st.success("✅ 저장 완료!")
+            st.success("✅ 저장 완료! 메인 화면에 즉시 반영됩니다.")
             st.rerun()
 
     # 반려견 정보 수정 아래로 총지출 이동 및 디자인(크기/색상) 수정
