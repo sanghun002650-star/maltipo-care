@@ -111,6 +111,7 @@ def load_profile():
 def load_settings():
     default_settings = {
         "btn_h": 4.2, "hdr_color": "#64748b",
+        "pee_interval_h": 5.0,
         "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
     }
     try:
@@ -300,19 +301,31 @@ with st.sidebar:
     st.caption(f"📌 버전: {APP_VERSION}")
     st.divider()
     
+    with st.expander("⏱️ 소변 알람 설정", expanded=False):
+        cur_interval = float(st.session_state.settings.get('pee_interval_h', 5.0))
+        new_interval = st.slider("소변 목표 간격 (시간)", min_value=1.0, max_value=12.0,
+                                  value=cur_interval, step=0.5,
+                                  help="이 시간이 지나면 화면 경고 + 텔레그램 알림")
+        st.caption(f"현재 설정: {new_interval:.1f}시간 ({new_interval*60:.0f}분)")
+        if st.button("⏱️ 간격 저장", use_container_width=True, type="primary", key="btn_interval_save"):
+            st.session_state.settings['pee_interval_h'] = new_interval
+            save_settings(st.session_state.settings)
+            st.success(f"✅ {new_interval:.1f}시간으로 저장!")
+            st.rerun()
+
     with st.expander("🎨 UI 설정", expanded=False):
         new_btn_h = st.slider("버튼 높이", 3.0, 6.0, float(st.session_state.settings.get('btn_h', 4.0)), 0.1)
         new_hdr_c = st.color_picker("섹션 헤더 색상", st.session_state.settings.get('hdr_color', '#475569'))
-        
+
         st.markdown("**배치 순서**")
         new_order = {}
         for k, v in st.session_state.settings.get('order', {}).items():
             new_order[k] = st.number_input(k, min_value=1, max_value=20, value=int(v), step=1)
-            
+
         if st.button("설정 저장", use_container_width=True, type="primary"):
             st.session_state.settings.update({'btn_h': new_btn_h, 'hdr_color': new_hdr_c, 'order': new_order})
             save_settings(st.session_state.settings)
-            st.rerun() 
+            st.rerun()
 
     with st.expander("📝 반려견 정보 수정"):
         p_name   = st.text_input("🐶 이름",   value=st.session_state.profile.get('pet_name',''))
@@ -427,54 +440,141 @@ d_time_str = d_iso[11:16] if d_iso else "--:--"
 # 🧱 UI 모듈
 # ==========================================
 def render_timer():
+    interval_ms = int(st.session_state.settings.get('pee_interval_h', 5.0) * 3600 * 1000)
+    interval_label = f"{st.session_state.settings.get('pee_interval_h', 5.0):.1f}h"
     components.html(f"""
-    <div style="display:flex; justify-content:space-between; gap:15px; font-family:sans-serif;">
-        <div style="flex:1; background:#ffffff; border-radius:24px; padding:20px 10px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); position:relative;">
-            <div style="font-size:0.9rem; font-weight:800; color:#0284c7; letter-spacing:0.5px; margin-bottom:10px;">💧 소변</div>
-            <div style="position:relative; width:110px; height:110px; margin:0 auto;">
-                <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
-                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f0f9ff" stroke-width="3" />
-                    <path id="p_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#38bdf8" stroke-width="3" stroke-dasharray="0, 100" stroke-linecap="round" style="transition: stroke-dasharray 1s ease-out;" />
-                </svg>
-                <div id="p_tm" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-size:1.6rem; font-weight:900; color:#0369a1; letter-spacing:1px;">--:--</div>
-            </div>
-            <div style="margin-top:12px; font-size:0.75rem; font-weight:800; color:#94a3b8;">최근 <span style="color:#0284c7;">{p_time_str}</span></div>
-        </div>
-        
-        <div style="flex:1; background:#ffffff; border-radius:24px; padding:20px 10px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); position:relative;">
-            <div style="font-size:0.9rem; font-weight:800; color:#c2410c; letter-spacing:0.5px; margin-bottom:10px;">💩 대변</div>
-            <div style="position:relative; width:110px; height:110px; margin:0 auto;">
-                <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
-                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fff7ed" stroke-width="3" />
-                    <path id="d_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fb923c" stroke-width="3" stroke-dasharray="0, 100" stroke-linecap="round" style="transition: stroke-dasharray 1s ease-out;" />
-                </svg>
-                <div id="d_tm" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-size:1.6rem; font-weight:900; color:#9a3412; letter-spacing:1px;">--:--</div>
-            </div>
-            <div style="margin-top:12px; font-size:0.75rem; font-weight:800; color:#94a3b8;">최근 <span style="color:#c2410c;">{d_time_str}</span></div>
-        </div>
+<style>
+@keyframes blink-red {{
+    0%,100% {{ background:#fff0f0; border-color:#fca5a5; }}
+    50%      {{ background:#fee2e2; border-color:#ef4444; }}
+}}
+.card-normal {{ background:#ffffff; border:2px solid transparent; border-radius:24px; padding:16px 8px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); flex:1; }}
+.card-warn   {{ animation:blink-red 1.2s ease-in-out infinite; border-radius:24px; padding:16px 8px; text-align:center; flex:1; }}
+</style>
+<div style="display:flex; justify-content:space-between; gap:12px; font-family:sans-serif;">
+
+  <!-- 소변 카드 -->
+  <div id="p_card" class="card-normal">
+    <div style="font-size:0.85rem; font-weight:800; color:#0284c7; letter-spacing:0.5px; margin-bottom:6px;">💧 소변</div>
+    <div style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin-bottom:4px;">마지막: <span style="color:#0284c7;">{p_time_str}</span></div>
+
+    <!-- 원형 게이지 (경과 비율) -->
+    <div style="position:relative; width:100px; height:100px; margin:0 auto 8px;">
+      <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
+        <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f0f9ff" stroke-width="3"/>
+        <path id="p_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#38bdf8" stroke-width="3" stroke-dasharray="0,100" stroke-linecap="round" style="transition:stroke-dasharray 1s ease-out;"/>
+      </svg>
+      <div id="p_elapsed" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.3rem;font-weight:900;color:#0369a1;letter-spacing:1px; line-height:1.1; text-align:center;">
+        <div>--:--</div><div style="font-size:0.55rem;color:#94a3b8;font-weight:700;">경과</div>
+      </div>
     </div>
-    <script>
-        // 최대 12시간(43,200,000ms) 기준으로 원형 게이지가 차오름
-        const MAX_MS = 43200000; 
-        function upP(){{ 
-            const el=document.getElementById('p_tm'), circ=document.getElementById('p_circ'), iso="{p_iso}"; 
-            if(!iso){{el.innerText="--:--"; return;}} 
-            const diff=new Date()-new Date(iso); if(diff<0)return; 
-            const m=Math.floor(diff/60000); 
-            el.innerText=String(Math.floor(m/60)).padStart(2,'0')+":"+String(m%60).padStart(2,'0'); 
-            const pct = Math.min((diff/MAX_MS)*100, 100); circ.setAttribute('stroke-dasharray', pct + ', 100');
+
+    <!-- 남은 시간 바 -->
+    <div style="font-size:0.65rem; font-weight:800; color:#64748b; margin-bottom:3px;">목표 {interval_label} 까지 남은 시간</div>
+    <div style="background:#e0f2fe; border-radius:8px; height:10px; overflow:hidden; margin:0 8px 6px;">
+      <div id="p_bar" style="height:100%; border-radius:8px; background:#38bdf8; width:100%; transition:width 1s ease-out;"></div>
+    </div>
+    <div id="p_remain" style="font-size:0.85rem; font-weight:900; color:#0369a1;">--:--</div>
+  </div>
+
+  <!-- 대변 카드 -->
+  <div id="d_card" class="card-normal">
+    <div style="font-size:0.85rem; font-weight:800; color:#c2410c; letter-spacing:0.5px; margin-bottom:6px;">💩 대변</div>
+    <div style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin-bottom:4px;">마지막: <span style="color:#c2410c;">{d_time_str}</span></div>
+
+    <div style="position:relative; width:100px; height:100px; margin:0 auto 8px;">
+      <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
+        <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fff7ed" stroke-width="3"/>
+        <path id="d_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fb923c" stroke-width="3" stroke-dasharray="0,100" stroke-linecap="round" style="transition:stroke-dasharray 1s ease-out;"/>
+      </svg>
+      <div id="d_elapsed" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.3rem;font-weight:900;color:#9a3412;letter-spacing:1px; line-height:1.1; text-align:center;">
+        <div>--:--</div><div style="font-size:0.55rem;color:#94a3b8;font-weight:700;">경과</div>
+      </div>
+    </div>
+
+    <div style="font-size:0.65rem; font-weight:800; color:#64748b; margin-bottom:3px;">목표 {interval_label} 까지 남은 시간</div>
+    <div style="background:#ffedd5; border-radius:8px; height:10px; overflow:hidden; margin:0 8px 6px;">
+      <div id="d_bar" style="height:100%; border-radius:8px; background:#fb923c; width:100%; transition:width 1s ease-out;"></div>
+    </div>
+    <div id="d_remain" style="font-size:0.85rem; font-weight:900; color:#9a3412;">--:--</div>
+  </div>
+</div>
+
+<script>
+const INTERVAL_MS = {interval_ms};
+const P_ISO = "{p_iso}";
+const D_ISO = "{d_iso}";
+let p_notified = false, d_notified = false;
+
+function fmt(ms) {{
+    if (ms < 0) ms = 0;
+    const m = Math.floor(ms / 60000);
+    return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0');
+}}
+
+function requestNotifPerm() {{
+    if ('Notification' in window && Notification.permission === 'default') {{
+        Notification.requestPermission();
+    }}
+}}
+requestNotifPerm();
+
+function sendNotif(title, body) {{
+    if ('Notification' in window && Notification.permission === 'granted') {{
+        new Notification(title, {{ body: body, icon: '🐾' }});
+    }}
+}}
+
+function update(iso, elapsedId, remainId, barId, circId, cardId, notifFlag, setNotif, color, bgColor, bgTrack) {{
+    if (!iso) {{
+        document.getElementById(elapsedId).innerHTML = '<div>--:--</div><div style="font-size:0.55rem;color:#94a3b8;font-weight:700;">경과</div>';
+        document.getElementById(remainId).innerText = '--:--';
+        document.getElementById(barId).style.width = '100%';
+        document.getElementById(barId).style.background = bgColor;
+        return;
+    }}
+    const diff = Date.now() - new Date(iso).getTime();
+    if (diff < 0) return;
+
+    const elapsed_m = Math.floor(diff / 60000);
+    document.getElementById(elapsedId).innerHTML =
+        '<div>' + String(Math.floor(elapsed_m/60)).padStart(2,'0') + ':' + String(elapsed_m%60).padStart(2,'0') + '</div>' +
+        '<div style="font-size:0.55rem;color:#94a3b8;font-weight:700;">경과</div>';
+
+    const pct = Math.min((diff / INTERVAL_MS) * 100, 100);
+    document.getElementById(circId).setAttribute('stroke-dasharray', pct + ',100');
+
+    const remaining = INTERVAL_MS - diff;
+    const card = document.getElementById(cardId);
+
+    if (remaining > 0) {{
+        document.getElementById(remainId).innerText = fmt(remaining) + ' 남음';
+        const barPct = Math.max(0, (remaining / INTERVAL_MS) * 100);
+        document.getElementById(barId).style.width = barPct + '%';
+        document.getElementById(barId).style.background = barPct < 20 ? '#f97316' : bgColor;
+        card.className = 'card-normal';
+        setNotif(false);
+    }} else {{
+        const over = Math.abs(remaining);
+        document.getElementById(remainId).innerText = fmt(over) + ' 초과!';
+        document.getElementById(barId).style.width = '0%';
+        card.className = 'card-warn';
+        if (!notifFlag) {{
+            sendNotif('🐾 소변 시간이 됐어요!', '마지막 소변 후 목표 시간을 초과했습니다.');
+            setNotif(true);
         }}
-        function upD(){{ 
-            const el=document.getElementById('d_tm'), circ=document.getElementById('d_circ'), iso="{d_iso}"; 
-            if(!iso){{el.innerText="--:--"; return;}} 
-            const diff=new Date()-new Date(iso); if(diff<0)return; 
-            const m=Math.floor(diff/60000); 
-            el.innerText=String(Math.floor(m/60)).padStart(2,'0')+":"+String(m%60).padStart(2,'0'); 
-            const pct = Math.min((diff/MAX_MS)*100, 100); circ.setAttribute('stroke-dasharray', pct + ', 100');
-        }}
-        setInterval(()=>{{upP();upD();}},1000); upP(); upD();
-    </script>
-    """, height=220)
+    }}
+}}
+
+function tick() {{
+    update(P_ISO, 'p_elapsed', 'p_remain', 'p_bar', 'p_circ', 'p_card',
+           p_notified, (v)=>{{ p_notified=v; }}, '#38bdf8', '#38bdf8', '#38bdf8');
+    update(D_ISO, 'd_elapsed', 'd_remain', 'd_bar', 'd_circ', 'd_card',
+           d_notified, (v)=>{{ d_notified=v; }}, '#fb923c', '#fb923c', '#fb923c');
+}}
+setInterval(tick, 1000); tick();
+</script>
+    """, height=290)
 
 def render_summary():
     p, d, w = get_real_count('소변', target_df), get_real_count('대변', target_df), get_real_count('산책', target_df)
@@ -752,9 +852,13 @@ st.divider()
 if not target_df.empty:
     last_act = str(target_df.iloc[-1]['활동'])
     last_t   = str(target_df.iloc[-1]['시간'])[11:19]
+    last_key = str(target_df.iloc[-1]['시간'])
     if st.button(f"❌ 직전 취소: [{last_t}] {last_act}", use_container_width=True):
         try:
-            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{target_df.iloc[-1]['시간']}.json", timeout=5).raise_for_status()
+            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{last_key}.json", timeout=5).raise_for_status()
+            st.session_state.pet_logs = st.session_state.pet_logs[
+                st.session_state.pet_logs['시간'].astype(str) != last_key
+            ].reset_index(drop=True)
             st.rerun()
         except: st.error("취소 실패")
 
