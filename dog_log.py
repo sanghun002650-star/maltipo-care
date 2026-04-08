@@ -9,8 +9,8 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.1.0 (에어리 라이트 테마 적용)"
-UPDATE_DATE = "2026-04-03"
+APP_VERSION = "v14.1.1 (스마트 알람 타이머 적용)"
+UPDATE_DATE = "2026-04-08"
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
@@ -81,7 +81,7 @@ if not st.session_state.logged_in:
                         default_prof = {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json", json=default_prof, timeout=5)
                         default_settings = {
-                            "btn_h": 4.2, "hdr_color": "#64748b",
+                            "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0,
                             "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
                         }
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/settings.json", json=default_settings, timeout=5)
@@ -110,8 +110,7 @@ def load_profile():
 
 def load_settings():
     default_settings = {
-        "btn_h": 4.2, "hdr_color": "#64748b",
-        "pee_interval_h": 5.0,
+        "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0,
         "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
     }
     try:
@@ -208,7 +207,7 @@ st.markdown(f"""
 .block-container {{ padding: 1.5rem 1rem 6rem 1rem !important; max-width: 550px !important; }}
 ::-webkit-scrollbar {{ width: 0px; }} 
 
-/* 2. 네츄럴 톤의 세련된 헤더 카드 (30년 디자이너 추천: 맑은 스카이 블루 미색) */
+/* 2. 네츄럴 톤의 세련된 헤더 카드 */
 .header-card {{
     display:flex; justify-content:space-between; align-items:center; 
     background:linear-gradient(135deg, #f0f9ff, #e0f2fe); 
@@ -219,7 +218,7 @@ st.markdown(f"""
     box-shadow: 0 10px 30px rgba(149, 157, 165, 0.15);
 }} 
 
-/* 3. 흰색 카드형 모듈 스타일 (Glass/Neumorphism) */
+/* 3. 흰색 카드형 모듈 스타일 */
 div[data-testid="stExpander"] {{
     background-color: #ffffff !important;
     border: none !important;
@@ -230,7 +229,7 @@ div[data-testid="stExpander"] {{
 }}
 div[data-testid="stExpander"] details {{ border: none !important; }}
 
-/* 4. 아이콘 중심의 고급스러운 버튼 디자인 */
+/* 4. 버튼 디자인 */
 div.stButton > button {{
     height: {DYNAMIC_BTN_H}rem !important;
     background-color: #ffffff !important;
@@ -247,7 +246,6 @@ div.stButton > button:active {{
     background-color: #f1f5f9 !important;
 }}
 
-/* 대시보드 메트릭스 */
 .horizontal-metrics {{ display: flex; justify-content: space-between; gap: 10px; margin-bottom: 5px; }}
 .metric-box {{
     flex: 1; border-radius: 18px; padding: 15px 5px;
@@ -276,13 +274,6 @@ div.stButton > button:active {{
 .stTabs [data-baseweb="tab"] {{ height: 3.2rem !important; font-weight: 800 !important; padding: 0 15px !important; }}
 hr {{ margin: 15px 0 !important; border-color: #f1f5f9 !important; }}
 .streamlit-expanderHeader {{ font-weight: 800 !important; font-size: 1rem !important; color: #1e293b !important; padding: 15px 20px !important; }} 
-
-@media (max-width: 768px) {{
-    div[data-testid="stHorizontalBlock"] {{
-        flex-direction: row !important;
-        gap: 12px !important;
-    }}
-}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -301,31 +292,20 @@ with st.sidebar:
     st.caption(f"📌 버전: {APP_VERSION}")
     st.divider()
     
-    with st.expander("⏱️ 소변 알람 설정", expanded=False):
-        cur_interval = float(st.session_state.settings.get('pee_interval_h', 5.0))
-        new_interval = st.slider("소변 목표 간격 (시간)", min_value=1.0, max_value=12.0,
-                                  value=cur_interval, step=0.5,
-                                  help="이 시간이 지나면 화면 경고 + 텔레그램 알림")
-        st.caption(f"현재 설정: {new_interval:.1f}시간 ({new_interval*60:.0f}분)")
-        if st.button("⏱️ 간격 저장", use_container_width=True, type="primary", key="btn_interval_save"):
-            st.session_state.settings['pee_interval_h'] = new_interval
-            save_settings(st.session_state.settings)
-            st.success(f"✅ {new_interval:.1f}시간으로 저장!")
-            st.rerun()
-
-    with st.expander("🎨 UI 설정", expanded=False):
+    with st.expander("🎨 UI 및 알람 설정", expanded=False):
+        new_interval = st.number_input("소변 알람 간격 (시간)", 1.0, 24.0, float(st.session_state.settings.get('pee_interval', 5.0)), 0.5)
         new_btn_h = st.slider("버튼 높이", 3.0, 6.0, float(st.session_state.settings.get('btn_h', 4.0)), 0.1)
         new_hdr_c = st.color_picker("섹션 헤더 색상", st.session_state.settings.get('hdr_color', '#475569'))
-
+        
         st.markdown("**배치 순서**")
         new_order = {}
         for k, v in st.session_state.settings.get('order', {}).items():
             new_order[k] = st.number_input(k, min_value=1, max_value=20, value=int(v), step=1)
-
+            
         if st.button("설정 저장", use_container_width=True, type="primary"):
-            st.session_state.settings.update({'btn_h': new_btn_h, 'hdr_color': new_hdr_c, 'order': new_order})
+            st.session_state.settings.update({'pee_interval': new_interval, 'btn_h': new_btn_h, 'hdr_color': new_hdr_c, 'order': new_order})
             save_settings(st.session_state.settings)
-            st.rerun()
+            st.rerun() 
 
     with st.expander("📝 반려견 정보 수정"):
         p_name   = st.text_input("🐶 이름",   value=st.session_state.profile.get('pet_name',''))
@@ -341,15 +321,22 @@ with st.sidebar:
             st.success("✅ 저장 완료!")
             st.rerun()
 
-    # 반려견 정보 수정 아래로 총지출 이동 및 디자인(크기/색상) 수정
-    _ldg = st.session_state.pet_ledger
-    _cur_month = now_kst().strftime("%Y-%m")
-    _monthly_total = int(_ldg[_ldg["날짜"].astype(str).str.startswith(_cur_month)]["금액"].sum()) if not _ldg.empty else 0
+    ldg_data = st.session_state.pet_ledger
+    cur_month_str = now_kst().strftime("%Y-%m")
+    if not ldg_data.empty:
+        monthly_total_val = int(ldg_data[ldg_data["날짜"].astype(str).str.startswith(cur_month_str)]["금액"].sum())
+    else:
+        monthly_total_val = 0
     
     st.markdown(f"""
-    <div style='background:linear-gradient(135deg, #fdfbfb, #f4f5f7); border: 1px solid #e2e8f0; border-radius:16px; padding:15px; margin-top:20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);'>
-        <div style='font-size:0.9rem; font-weight:800; color:#64748b; margin-bottom:4px;'>💰 {now_kst().strftime("%m월")} 총지출</div>
-        <div style='font-size:1.05rem; font-weight:900; color:#334155;'>{_monthly_total:,}원</div>
+    <div style='background: linear-gradient(135deg, #ffffff, #f1f5f9); border: 1px solid #e2e8f0; border-radius: 20px; padding: 18px; margin-top: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.04);'>
+        <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 8px;'>
+            <span style='font-size: 1.2rem;'>💰</span>
+            <span style='font-size: 0.95rem; font-weight: 800; color: #64748b;'>{now_kst().strftime("%m월")} 총지출</span>
+        </div>
+        <div style='font-size: 1.4rem; font-weight: 900; color: #1e293b; letter-spacing: -0.5px;'>
+            {monthly_total_val:,}<span style='font-size: 1rem; margin-left: 2px;'>원</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -365,12 +352,9 @@ def get_iso(act_keyword, check_df):
     for i in range(len(check_df)-1, -1, -1):
         act = str(check_df.iloc[i]['활동'])
         t   = str(check_df.iloc[i]['시간'])
-        
         if '_' in t: t = t.split('_')[0]
         elif '.' in t: t = t.split('.')[0]
-        
         if '차감' in act: continue
-        
         if act_keyword in act:
             if '끄기' in act or '리셋' in act: return ""
             if '(수정)' in act and '[' in act and ']' in act:
@@ -378,8 +362,7 @@ def get_iso(act_keyword, check_df):
                     extracted_time = act.split('[')[1].split(']')[0]
                     date_part = t.split(' ')[0]
                     return f"{date_part}T{extracted_time}+09:00"
-                except:
-                    pass
+                except: pass
             return t.replace(" ","T") + "+09:00"
     return ""
 
@@ -395,40 +378,25 @@ def get_real_count(keyword, check_df):
 
 def get_d_day_info(keyword):
     if df.empty: return "기록 없음", "", "기록 없음"
-    
     matches = df[df['활동'].str.contains(keyword, na=False)].copy()
     if matches.empty: return "기록 없음", "", "기록 없음"
-    
     matches = matches.sort_values(by='시간', ascending=True)
-    
     last_record = matches.iloc[-1]
-    last_dt_full = str(last_record['시간'])
-    last_dt_str = last_dt_full[:10]
+    last_dt_str = str(last_record['시간'])[:10]
     last_act = str(last_record['활동'])
-    
-    if ":" in last_act:
-        last_memo = last_act.split(":", 1)[1].strip()
-    else:
-        last_memo = last_act
-        
+    memo = last_act.split(":", 1)[1].strip() if ":" in last_act else last_act
     last_dt = datetime.strptime(last_dt_str, "%Y-%m-%d").date()
     diff = (now_kst().date() - last_dt).days
     d_day_str = f"<span class='d-day-badge'>{diff}일 경과</span>" if diff > 0 else "<span class='d-day-badge'>오늘 완료</span>"
-    
-    return last_dt_str, d_day_str, last_memo
+    return last_dt_str, d_day_str, memo
 
 def get_record_for_date(keyword, target_date_str):
     if df.empty: return target_date_str, "해당 날짜 기록 없음"
     matches = df[df['시간'].astype(str).str.startswith(target_date_str) & df['활동'].str.contains(keyword, na=False)].copy()
     if matches.empty: return target_date_str, "해당 날짜 기록 없음"
-    
     matches = matches.sort_values(by='시간', ascending=True)
     last_act = str(matches.iloc[-1]['활동'])
-    
-    if ":" in last_act:
-        memo = last_act.split(":", 1)[1].strip()
-    else:
-        memo = last_act
+    memo = last_act.split(":", 1)[1].strip() if ":" in last_act else last_act
     return target_date_str, memo
 
 p_iso = get_iso("소변", target_df)
@@ -437,144 +405,89 @@ p_time_str = p_iso[11:16] if p_iso else "--:--"
 d_time_str = d_iso[11:16] if d_iso else "--:--"
 
 # ==========================================
-# 🧱 UI 모듈
+# 🧱 UI 모듈 (타이머 카운트다운 적용)
 # ==========================================
 def render_timer():
-    interval_ms = int(st.session_state.settings.get('pee_interval_h', 5.0) * 3600 * 1000)
-    interval_label = f"{st.session_state.settings.get('pee_interval_h', 5.0):.1f}h"
+    interval_h = st.session_state.settings.get("pee_interval", 5.0)
+    ALARM_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"
+
     components.html(f"""
-<style>
-@keyframes blink-red {{
-    0%,100% {{ background:#fff0f0; border-color:#fca5a5; }}
-    50%      {{ background:#fee2e2; border-color:#ef4444; }}
-}}
-.card-normal {{ background:#ffffff; border:2px solid transparent; border-radius:24px; padding:16px 8px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); flex:1; }}
-.card-warn   {{ animation:blink-red 1.2s ease-in-out infinite; border-radius:24px; padding:16px 8px; text-align:center; flex:1; }}
-</style>
-<div style="display:flex; justify-content:space-between; gap:12px; font-family:sans-serif;">
-
-  <!-- 소변 카드 -->
-  <div id="p_card" class="card-normal">
-    <div style="font-size:0.85rem; font-weight:800; color:#0284c7; letter-spacing:0.5px; margin-bottom:6px;">💧 소변</div>
-    <div style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin-bottom:4px;">마지막: <span style="color:#0284c7;">{p_time_str}</span></div>
-
-    <!-- 원형 게이지 (경과 비율) -->
-    <div style="position:relative; width:100px; height:100px; margin:0 auto 8px;">
-      <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
-        <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f0f9ff" stroke-width="3"/>
-        <path id="p_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#38bdf8" stroke-width="3" stroke-dasharray="0,100" stroke-linecap="round" style="transition:stroke-dasharray 1s ease-out;"/>
-      </svg>
-      <div id="p_elapsed" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.3rem;font-weight:900;color:#0369a1;letter-spacing:1px; line-height:1.1; text-align:center;">
-        <div>--:--</div><div style="font-size:0.55rem;color:#94a3b8;font-weight:700;">경과</div>
-      </div>
+    <div style="display:flex; justify-content:space-between; gap:15px; font-family:sans-serif;">
+        <div id="p_card" style="flex:1; background:#ffffff; border-radius:24px; padding:20px 10px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); transition:all 0.5s ease; position:relative;">
+            <div id="p_label" style="font-size:0.9rem; font-weight:800; color:#0284c7; letter-spacing:0.5px; margin-bottom:10px;">💧 소변 타이머</div>
+            <div style="position:relative; width:110px; height:110px; margin:0 auto;">
+                <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
+                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f0f9ff" stroke-width="3" />
+                    <path id="p_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#38bdf8" stroke-width="3" stroke-dasharray="0, 100" stroke-linecap="round" style="transition: stroke-dasharray 1s ease-out;" />
+                </svg>
+                <div id="p_tm" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-size:1.6rem; font-weight:900; color:#0369a1; letter-spacing:1px;">--:--</div>
+            </div>
+            <div id="p_info" style="margin-top:12px; font-size:0.75rem; font-weight:800; color:#94a3b8;">남은 시간: <span id="p_rem">--:--</span></div>
+        </div>
+        
+        <div id="d_card" style="flex:1; background:#ffffff; border-radius:24px; padding:20px 10px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); position:relative;">
+            <div style="font-size:0.9rem; font-weight:800; color:#c2410c; letter-spacing:0.5px; margin-bottom:10px;">💩 대변</div>
+            <div style="position:relative; width:110px; height:110px; margin:0 auto;">
+                <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
+                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fff7ed" stroke-width="3" />
+                    <path id="d_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fb923c" stroke-width="3" stroke-dasharray="0, 100" stroke-linecap="round" style="transition: stroke-dasharray 1s ease-out;" />
+                </svg>
+                <div id="d_tm" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-size:1.6rem; font-weight:900; color:#9a3412; letter-spacing:1px;">--:--</div>
+            </div>
+            <div style="margin-top:12px; font-size:0.75rem; font-weight:800; color:#94a3b8;">최근 <span style="color:#c2410c;">{d_time_str}</span></div>
+        </div>
     </div>
+    <audio id="alarm_sound" src="{ALARM_URL}" preload="auto"></audio>
 
-    <!-- 남은 시간 바 -->
-    <div style="font-size:0.65rem; font-weight:800; color:#64748b; margin-bottom:3px;">목표 {interval_label} 까지 남은 시간</div>
-    <div style="background:#e0f2fe; border-radius:8px; height:10px; overflow:hidden; margin:0 8px 6px;">
-      <div id="p_bar" style="height:100%; border-radius:8px; background:#38bdf8; width:100%; transition:width 1s ease-out;"></div>
-    </div>
-    <div id="p_remain" style="font-size:0.85rem; font-weight:900; color:#0369a1;">--:--</div>
-  </div>
+    <script>
+        const P_LIMIT = {interval_h} * 3600000; 
+        const D_MAX_MS = 43200000; 
+        let isAlarmed = false;
 
-  <!-- 대변 카드 -->
-  <div id="d_card" class="card-normal">
-    <div style="font-size:0.85rem; font-weight:800; color:#c2410c; letter-spacing:0.5px; margin-bottom:6px;">💩 대변</div>
-    <div style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin-bottom:4px;">마지막: <span style="color:#c2410c;">{d_time_str}</span></div>
+        function update() {{ 
+            const p_el = document.getElementById('p_tm'), p_rem = document.getElementById('p_rem'), p_circ = document.getElementById('p_circ'), p_card = document.getElementById('p_card');
+            const audio = document.getElementById('alarm_sound');
+            const p_iso = "{p_iso}"; 
+            
+            if(p_iso) {{
+                const diff = new Date() - new Date(p_iso);
+                if(diff >= 0) {{
+                    const m = Math.floor(diff/60000);
+                    p_el.innerText = String(Math.floor(m/60)).padStart(2,'0')+":"+String(m%60).padStart(2,'0');
+                    
+                    const rem_ms = P_LIMIT - diff;
+                    if (rem_ms > 0) {{
+                        const rm = Math.floor(rem_ms/60000);
+                        p_rem.innerText = String(Math.floor(rm/60)).padStart(2,'0')+":"+String(rm%60).padStart(2,'0');
+                        p_card.style.background = "#ffffff";
+                        isAlarmed = false;
+                    }} else {{
+                        p_rem.innerText = "초과!";
+                        p_card.style.background = "#fff1f2";
+                        if(!isAlarmed) {{
+                            audio.play().catch(e => console.log("알람 오디오 재생 실패:", e));
+                            isAlarmed = true;
+                        }}
+                    }}
+                    const pct = Math.min((diff/P_LIMIT)*100, 100);
+                    p_circ.setAttribute('stroke-dasharray', pct + ', 100');
+                }}
+            }}
 
-    <div style="position:relative; width:100px; height:100px; margin:0 auto 8px;">
-      <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
-        <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fff7ed" stroke-width="3"/>
-        <path id="d_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fb923c" stroke-width="3" stroke-dasharray="0,100" stroke-linecap="round" style="transition:stroke-dasharray 1s ease-out;"/>
-      </svg>
-      <div id="d_elapsed" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.3rem;font-weight:900;color:#9a3412;letter-spacing:1px; line-height:1.1; text-align:center;">
-        <div>--:--</div><div style="font-size:0.55rem;color:#94a3b8;font-weight:700;">경과</div>
-      </div>
-    </div>
-
-    <div style="font-size:0.65rem; font-weight:800; color:#64748b; margin-bottom:3px;">목표 {interval_label} 까지 남은 시간</div>
-    <div style="background:#ffedd5; border-radius:8px; height:10px; overflow:hidden; margin:0 8px 6px;">
-      <div id="d_bar" style="height:100%; border-radius:8px; background:#fb923c; width:100%; transition:width 1s ease-out;"></div>
-    </div>
-    <div id="d_remain" style="font-size:0.85rem; font-weight:900; color:#9a3412;">--:--</div>
-  </div>
-</div>
-
-<script>
-const INTERVAL_MS = {interval_ms};
-const P_ISO = "{p_iso}";
-const D_ISO = "{d_iso}";
-let p_notified = false, d_notified = false;
-
-function fmt(ms) {{
-    if (ms < 0) ms = 0;
-    const m = Math.floor(ms / 60000);
-    return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0');
-}}
-
-function requestNotifPerm() {{
-    if ('Notification' in window && Notification.permission === 'default') {{
-        Notification.requestPermission();
-    }}
-}}
-requestNotifPerm();
-
-function sendNotif(title, body) {{
-    if ('Notification' in window && Notification.permission === 'granted') {{
-        new Notification(title, {{ body: body, icon: '🐾' }});
-    }}
-}}
-
-function update(iso, elapsedId, remainId, barId, circId, cardId, notifFlag, setNotif, color, bgColor, bgTrack) {{
-    if (!iso) {{
-        document.getElementById(elapsedId).innerHTML = '<div>--:--</div><div style="font-size:0.55rem;color:#94a3b8;font-weight:700;">경과</div>';
-        document.getElementById(remainId).innerText = '--:--';
-        document.getElementById(barId).style.width = '100%';
-        document.getElementById(barId).style.background = bgColor;
-        return;
-    }}
-    const diff = Date.now() - new Date(iso).getTime();
-    if (diff < 0) return;
-
-    const elapsed_m = Math.floor(diff / 60000);
-    document.getElementById(elapsedId).innerHTML =
-        '<div>' + String(Math.floor(elapsed_m/60)).padStart(2,'0') + ':' + String(elapsed_m%60).padStart(2,'0') + '</div>' +
-        '<div style="font-size:0.55rem;color:#94a3b8;font-weight:700;">경과</div>';
-
-    const pct = Math.min((diff / INTERVAL_MS) * 100, 100);
-    document.getElementById(circId).setAttribute('stroke-dasharray', pct + ',100');
-
-    const remaining = INTERVAL_MS - diff;
-    const card = document.getElementById(cardId);
-
-    if (remaining > 0) {{
-        document.getElementById(remainId).innerText = fmt(remaining) + ' 남음';
-        const barPct = Math.max(0, (remaining / INTERVAL_MS) * 100);
-        document.getElementById(barId).style.width = barPct + '%';
-        document.getElementById(barId).style.background = barPct < 20 ? '#f97316' : bgColor;
-        card.className = 'card-normal';
-        setNotif(false);
-    }} else {{
-        const over = Math.abs(remaining);
-        document.getElementById(remainId).innerText = fmt(over) + ' 초과!';
-        document.getElementById(barId).style.width = '0%';
-        card.className = 'card-warn';
-        if (!notifFlag) {{
-            sendNotif('🐾 소변 시간이 됐어요!', '마지막 소변 후 목표 시간을 초과했습니다.');
-            setNotif(true);
+            const d_el = document.getElementById('d_tm'), d_circ = document.getElementById('d_circ'), d_iso = "{d_iso}";
+            if(d_iso) {{
+                const diff = new Date() - new Date(d_iso);
+                if(diff >= 0) {{
+                    const m = Math.floor(diff/60000);
+                    d_el.innerText = String(Math.floor(m/60)).padStart(2,'0')+":"+String(m%60).padStart(2,'0');
+                    const pct = Math.min((diff/D_MAX_MS)*100, 100);
+                    d_circ.setAttribute('stroke-dasharray', pct + ', 100');
+                }}
+            }}
         }}
-    }}
-}}
-
-function tick() {{
-    update(P_ISO, 'p_elapsed', 'p_remain', 'p_bar', 'p_circ', 'p_card',
-           p_notified, (v)=>{{ p_notified=v; }}, '#38bdf8', '#38bdf8', '#38bdf8');
-    update(D_ISO, 'd_elapsed', 'd_remain', 'd_bar', 'd_circ', 'd_card',
-           d_notified, (v)=>{{ d_notified=v; }}, '#fb923c', '#fb923c', '#fb923c');
-}}
-setInterval(tick, 1000); tick();
-</script>
-    """, height=290)
+        setInterval(update, 1000); update();
+    </script>
+    """, height=220)
 
 def render_summary():
     p, d, w = get_real_count('소변', target_df), get_real_count('대변', target_df), get_real_count('산책', target_df)
@@ -612,97 +525,52 @@ def render_walk():
 
 def render_health_beauty():
     st.markdown("<div class='section-header'>🏥 건강 / 미용</div>", unsafe_allow_html=True)
-    
     l_mh, d_mh, _ = get_d_day_info("🏥 병원/약")
     l_gr, d_gr, _ = get_d_day_info("✂️ 미용") 
-
     with st.expander("✨ 상세 기록 관리 (약/병원/미용 메모)", expanded=False):
         ts = now_kst().strftime("%H:%M:%S_%f")
-        
         saved_d_mh_str = st.session_state.settings.get("sel_date_mh", now_kst().strftime("%Y-%m-%d"))
         saved_d_gr_str = st.session_state.settings.get("sel_date_gr", now_kst().strftime("%Y-%m-%d"))
-        
         saved_d_mh = datetime.strptime(saved_d_mh_str, "%Y-%m-%d").date()
         saved_d_gr = datetime.strptime(saved_d_gr_str, "%Y-%m-%d").date()
-        
         st.markdown(f"<div class='health-row'><span>🏥 병원/약</span><span class='last-date'>전체최근: {l_mh} {d_mh}</span></div>", unsafe_allow_html=True)
         c1, c2 = st.columns([1.2, 1])
         with c1:
             d_val = st.date_input("날짜", value=saved_d_mh, key="d_mh")
-            
             if d_val != saved_d_mh:
                 st.session_state.settings["sel_date_mh"] = d_val.strftime("%Y-%m-%d")
-                save_settings(st.session_state.settings)
-                st.rerun()
-                
-            t_val = st.text_input("메모 (예: 심장사상충)", key="t_mh", placeholder="음성/키보드 입력")
+                save_settings(st.session_state.settings); st.rerun()
+            t_val = st.text_input("메모", key="t_mh", placeholder="예: 심장사상충")
             if st.button("🏥 기록 저장", use_container_width=True):
                 add_record(f"🏥 병원/약: {t_val}" if t_val else "🏥 병원/약", f"{d_val} {ts}")
         with c2:
             date_mh, memo_mh = get_record_for_date("🏥 병원/약", d_val.strftime("%Y-%m-%d"))
-            st.markdown(f"""
-            <div style='padding: 18px 15px; border-radius: 16px; min-height: 110px; display: flex; flex-direction: column; justify-content: center; background-color: #fefce8; border-left: 6px solid #facc15; box-shadow: 0 4px 10px rgba(0,0,0,0.02);'>
-                <div style='font-size: 0.85rem; font-weight: 900; margin-bottom: 8px; color: #a16207;'>📌 선택일 진료/약</div>
-                <div style='font-size: 1.1rem; font-weight: 900; color: #52525b; margin-bottom: 4px;'>📅 {date_mh}</div>
-                <div style='font-size: 1.1rem; font-weight: 900; color: #422006; word-break: break-all; line-height: 1.4;'>📝 {memo_mh}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            st.markdown(f"<div style='padding:18px 15px; border-radius:16px; min-height:110px; background-color:#fefce8; border-left:6px solid #facc15;'><div style='font-size:0.85rem; font-weight:900; margin-bottom:8px; color:#a16207;'>📌 선택일 진료</div><div style='font-size:1.1rem; font-weight:900; color:#52525b;'>📅 {date_mh}</div><div style='font-size:1.1rem; font-weight:900; color:#422006;'>📝 {memo_mh}</div></div>", unsafe_allow_html=True)
         st.divider()
-        
         st.markdown(f"<div class='health-row'><span>✂️ 미용/목욕</span><span class='last-date'>전체최근: {l_gr} {d_gr}</span></div>", unsafe_allow_html=True)
         c3, c4 = st.columns([1.2, 1])
         with c3:
             d_grv = st.date_input("날짜", value=saved_d_gr, key="d_gr")
             if d_grv != saved_d_gr:
                 st.session_state.settings["sel_date_gr"] = d_grv.strftime("%Y-%m-%d")
-                save_settings(st.session_state.settings)
-                st.rerun()
-                
-            t_grv = st.text_input("메모 (예: 전체미용)", key="t_gr", placeholder="음성/키보드 입력")
+                save_settings(st.session_state.settings); st.rerun()
+            t_grv = st.text_input("메모", key="t_gr", placeholder="예: 전체미용")
             if st.button("✂️ 기록 저장", use_container_width=True):
                 add_record(f"✂️ 미용: {t_grv}" if t_grv else "✂️ 미용 및 목욕", f"{d_grv} {ts}")
         with c4:
             date_gr, memo_gr = get_record_for_date("✂️ 미용", d_grv.strftime("%Y-%m-%d"))
-            st.markdown(f"""
-            <div style='padding: 18px 15px; border-radius: 16px; min-height: 110px; display: flex; flex-direction: column; justify-content: center; background-color: #fdf2f8; border-left: 6px solid #f472b6; box-shadow: 0 4px 10px rgba(0,0,0,0.02);'>
-                <div style='font-size: 0.85rem; font-weight: 900; margin-bottom: 8px; color: #be185d;'>📌 선택일 미용 기록</div>
-                <div style='font-size: 1.1rem; font-weight: 900; color: #52525b; margin-bottom: 4px;'>📅 {date_gr}</div>
-                <div style='font-size: 1.1rem; font-weight: 900; color: #831843; word-break: break-all; line-height: 1.4;'>📝 {memo_gr}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:18px 15px; border-radius:16px; min-height:110px; background-color:#fdf2f8; border-left:6px solid #f472b6;'><div style='font-size:0.85rem; font-weight:900; margin-bottom:8px; color:#be185d;'>📌 선택일 미용</div><div style='font-size:1.1rem; font-weight:900; color:#52525b;'>📅 {date_gr}</div><div style='font-size:1.1rem; font-weight:900; color:#831843;'>📝 {memo_gr}</div></div>", unsafe_allow_html=True)
 
 def render_manual():
     with st.expander("⚙️ 타이머 수동 조절"):
-        st.info("오늘 날짜를 기준으로 시간을 수정합니다.")
         t1, t2 = st.tabs(["💧 소변", "💩 대변"])
         with t1:
-            tw1, tk1 = st.tabs(["⏱️ 휠", "⌨️ 키보드"])
-            with tw1:
-                p_wheel = st.time_input("시간 선택", now_kst().time(), key="p_wheel")
-                if st.button("시간 저장", key="bp_w", use_container_width=True): 
-                    add_record(f"💦 소변(수정) [{p_wheel.strftime('%H:%M:%S')}] (통계제외)")
-            with tk1:
-                p_txt = st.text_input("시간 입력 (HH:MM)", value=now_kst().strftime("%H:%M"), key="p_txt")
-                if st.button("시간 저장", key="bp_k", use_container_width=True):
-                    try: 
-                        vt = datetime.strptime(p_txt, '%H:%M').strftime('%H:%M:00')
-                        add_record(f"💦 소변(수정) [{vt}] (통계제외)")
-                    except: st.error("HH:MM 형식!")
+            p_wheel = st.time_input("시간 선택", now_kst().time(), key="p_wheel")
+            if st.button("시간 저장", key="bp_w", use_container_width=True): add_record(f"💦 소변(수정) [{p_wheel.strftime('%H:%M:%S')}] (통계제외)")
             if st.button("🔄 리셋", use_container_width=True, key="bp_r"): add_record("💦 소변 리셋 (통계제외)")
         with t2:
-            tw2, tk2 = st.tabs(["⏱️ 휠", "⌨️ 키보드"])
-            with tw2:
-                d_wheel = st.time_input("시간 선택", now_kst().time(), key="d_wheel")
-                if st.button("시간 저장", key="bd_w", use_container_width=True): 
-                    add_record(f"💩 대변(수정) [{d_wheel.strftime('%H:%M:%S')}] (통계제외)")
-            with tk2:
-                d_txt = st.text_input("시간 입력 (HH:MM)", value=now_kst().strftime("%H:%M"), key="d_txt")
-                if st.button("시간 저장", key="bd_k", use_container_width=True):
-                    try: 
-                        vt = datetime.strptime(d_txt, '%H:%M').strftime('%H:%M:00')
-                        add_record(f"💩 대변(수정) [{vt}] (통계제외)")
-                    except: st.error("HH:MM 형식!")
+            d_wheel = st.time_input("시간 선택", now_kst().time(), key="d_wheel")
+            if st.button("시간 저장", key="bd_w", use_container_width=True): add_record(f"💩 대변(수정) [{d_wheel.strftime('%H:%M:%S')}] (통계제외)")
             if st.button("🔄 리셋", use_container_width=True, key="bd_r"): add_record("💩 대변 리셋 (통계제외)")
 
 def render_deduct():
@@ -717,104 +585,44 @@ def render_deduct():
 
 def render_log():
     with st.expander(f"📋 활동 로그 ({len(target_df)}건)", expanded=False):
-        search = st.text_input("🔍 검색 (예: 산책, 병원)", key="log_search")
-        if target_df.empty: st.info("기록 없음")
-        else:
+        search = st.text_input("🔍 검색", key="log_search")
+        if not target_df.empty:
             log_display = target_df.copy()
-            if search:
-                log_display = log_display[log_display['활동'].str.contains(search, na=False)]
+            if search: log_display = log_display[log_display['활동'].str.contains(search, na=False)]
             log_display['시간'] = log_display['시간'].astype(str).str[11:19]
             log_display = log_display.sort_values('시간', ascending=False).reset_index(drop=True)
             log_display.index += 1
-            st.dataframe(log_display, use_container_width=True, column_config={"시간": st.column_config.TextColumn("🕐 시간", width="small"), "활동": st.column_config.TextColumn("📝 활동")})
+            st.dataframe(log_display, use_container_width=True)
 
 def render_ledger():
-    st.markdown("""
-    <style>
-    div[data-testid="stExpander"]:has(.ledger-unique-marker) > details > summary {
-        padding: 16px 15px !important;
-        background: linear-gradient(135deg, #f8fafc, #e2e8f0) !important;
-        border-radius: 18px !important;
-        margin-bottom: 10px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.02) !important;
-    }
-    div[data-testid="stExpander"]:has(.ledger-unique-marker) > details > summary p {
-        font-size: 1.15rem !important; 
-        font-weight: 900 !important;
-        color: #0f172a !important;
-    }
-    div[data-testid="stExpander"]:has(.ledger-unique-marker) > details > summary svg {
-        width: 1.4rem !important; 
-        height: 1.4rem !important;
-        color: #475569 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    with st.expander("💰 반려견 가계부 (터치하여 펼치기)", expanded=False):
-        st.markdown('<div class="ledger-unique-marker"></div>', unsafe_allow_html=True)
-
+    with st.expander("💰 반려견 가계부 (상세)", expanded=False):
         CATS = ["사료", "간식", "배변패드", "의료비", "기타"]
-        CAT_ICONS = {"사료": "🍚", "간식": "🦴", "배변패드": "📦", "의료비": "🏥", "기타": "📝"}
-
         ldg = st.session_state.pet_ledger
         cur_month = now_kst().strftime("%Y-%m")
-        monthly_ldg = ldg[ldg["날짜"].astype(str).str.startswith(cur_month)].copy() if not ldg.empty else pd.DataFrame(columns=["키","날짜","카테고리","금액","메모"])
+        monthly_ldg = ldg[ldg["날짜"].astype(str).str.startswith(cur_month)].copy() if not ldg.empty else pd.DataFrame()
         total = int(monthly_ldg["금액"].sum()) if not monthly_ldg.empty else 0
-
-        st.markdown(f"""
-        <div style='background:linear-gradient(135deg,#334155,#1e293b); border-radius:18px; padding:16px 20px; color:white; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;'>
-            <div style='font-size:0.85rem; font-weight:800; opacity:0.9;'>💰 {now_kst().strftime("%m월")} 총지출</div>
-            <div style='font-size:1.8rem; font-weight:900;'>{total:,}원</div>
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(f"<div style='background:#1e293b; border-radius:15px; padding:15px; color:white; text-align:center; margin-bottom:15px;'><strong>{now_kst().strftime('%m월')} 합계: {total:,}원</strong></div>", unsafe_allow_html=True)
+        lc1, lc2 = st.columns(2)
+        with lc1:
+            l_date = st.date_input("날짜", value=now_kst().date(), key="l_date")
+            l_cat = st.selectbox("카테고리", CATS, key="l_cat")
+        with lc2:
+            l_amt = st.number_input("금액", min_value=0, step=1000, key="l_amt")
+            l_memo = st.text_input("메모", key="l_memo")
+        if st.button("💾 지출 저장", use_container_width=True, type="primary"):
+            if l_amt > 0: add_ledger_entry(l_date.strftime("%Y-%m-%d"), l_cat, int(l_amt), l_memo)
         if not monthly_ldg.empty:
-            cat_totals = monthly_ldg.groupby("카테고리")["금액"].sum().to_dict()
-            active_cats = [(c, cat_totals[c]) for c in CATS if c in cat_totals and cat_totals[c] > 0]
-            if active_cats:
-                boxes = "".join([
-                    f"<div class='metric-box' style='background:#f8fafc;'><div class='metric-label'>{CAT_ICONS.get(c,'')}&nbsp;{c}</div><div style='font-size:1.1rem; font-weight:900; color:#0f172a;'>{int(amt):,}원</div></div>"
-                    for c, amt in active_cats
-                ])
-                st.markdown(f"<div class='horizontal-metrics'>{boxes}</div>", unsafe_allow_html=True)
-
-        with st.expander("➕ 지출 입력", expanded=False):
-            lc1, lc2 = st.columns(2)
-            with lc1:
-                l_date = st.date_input("날짜", value=now_kst().date(), key="l_date")
-                l_cat  = st.selectbox("카테고리", CATS, key="l_cat")
-            with lc2:
-                l_amt  = st.number_input("금액 (원)", min_value=0, step=100, key="l_amt")
-                l_memo = st.text_input("메모", key="l_memo", placeholder="예: 로얄캐닌 2kg")
-            if st.button("💾 지출 저장", use_container_width=True, type="primary", key="btn_ledger_save"):
-                if l_amt > 0:
-                    add_ledger_entry(l_date.strftime("%Y-%m-%d"), l_cat, int(l_amt), l_memo)
-                else:
-                    st.warning("금액을 입력하세요.")
-
-        if not monthly_ldg.empty:
-            disp = monthly_ldg[["날짜","카테고리","금액","메모"]].sort_values("날짜", ascending=False).reset_index(drop=True)
-            disp.index += 1
-            st.dataframe(disp, use_container_width=True, column_config={
-                "날짜": st.column_config.TextColumn("📅 날짜", width="small"),
-                "카테고리": st.column_config.TextColumn("🏷️", width="small"),
-                "금액": st.column_config.NumberColumn("💰 금액", format="%d원"),
-                "메모": st.column_config.TextColumn("📝 메모"),
-            })
+            st.dataframe(monthly_ldg[["날짜","카테고리","금액","메모"]].sort_values("날짜", ascending=False), use_container_width=True)
             last_row = monthly_ldg.sort_values("날짜", ascending=False).iloc[0]
-            if st.button(f"❌ 직전 취소: {last_row['카테고리']} {int(last_row['금액']):,}원", use_container_width=True, key="btn_ledger_del"):
+            if st.button(f"❌ 직전 삭제: {last_row['카테고리']} {int(last_row['금액']):,}원", use_container_width=True):
                 delete_ledger_entry(str(last_row["키"]))
-        else:
-            st.info("이번 달 지출 내역이 없습니다.")
 
 def render_stats():
     with st.expander("📊 주간 통계"):
-        if df.empty: st.info("데이터 없음")
-        else:
+        if not df.empty:
             w_dates = [(now_kst() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
             w_data = [{"날짜": d[5:], "소변": get_real_count('소변', df[df['시간'].astype(str).str.startswith(d)]), "대변": get_real_count('대변', df[df['시간'].astype(str).str.startswith(d)]), "산책": get_real_count('산책', df[df['시간'].astype(str).str.startswith(d)])} for d in w_dates]
-            st.bar_chart(pd.DataFrame(w_data).set_index("날짜"), color=["#bae6fd","#fed7aa","#d9f99d"]) # 파스텔 톤 차트 색상 적용
+            st.bar_chart(pd.DataFrame(w_data).set_index("날짜"), color=["#bae6fd","#fed7aa","#d9f99d"])
 
 # ==========================================
 # 🏠 메인 렌더링
@@ -852,13 +660,9 @@ st.divider()
 if not target_df.empty:
     last_act = str(target_df.iloc[-1]['활동'])
     last_t   = str(target_df.iloc[-1]['시간'])[11:19]
-    last_key = str(target_df.iloc[-1]['시간'])
     if st.button(f"❌ 직전 취소: [{last_t}] {last_act}", use_container_width=True):
         try:
-            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{last_key}.json", timeout=5).raise_for_status()
-            st.session_state.pet_logs = st.session_state.pet_logs[
-                st.session_state.pet_logs['시간'].astype(str) != last_key
-            ].reset_index(drop=True)
+            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{target_df.iloc[-1]['시간']}.json", timeout=5).raise_for_status()
             st.rerun()
         except: st.error("취소 실패")
 
@@ -868,4 +672,7 @@ st.markdown(f"""
     현재 버전: <strong>{APP_VERSION}</strong> | 업데이트: {UPDATE_DATE}
 </div>
 """, unsafe_allow_html=True)
+
 # END
+# Version: v14.1.1
+# Date: 2026-04-08
