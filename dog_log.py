@@ -9,7 +9,7 @@ import time
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.1.1 (스마트 알람 타이머 적용)"
+APP_VERSION = "v14.1.2 (타이머 UI 직관성 강화 & 분 단위 테스트 적용)"
 UPDATE_DATE = "2026-04-08"
 
 KST = timezone(timedelta(hours=9))
@@ -80,8 +80,9 @@ if not st.session_state.logged_in:
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/password.json", json=reg_pw, timeout=5)
                         default_prof = {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json", json=default_prof, timeout=5)
+                        # pee_interval 기본값을 분 단위(5분)로 변경 (테스트 용도)
                         default_settings = {
-                            "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0,
+                            "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5,
                             "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
                         }
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/settings.json", json=default_settings, timeout=5)
@@ -110,7 +111,7 @@ def load_profile():
 
 def load_settings():
     default_settings = {
-        "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0,
+        "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5, # 기본 5분으로 설정
         "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
     }
     try:
@@ -293,7 +294,8 @@ with st.sidebar:
     st.divider()
     
     with st.expander("🎨 UI 및 알람 설정", expanded=False):
-        new_interval = st.number_input("소변 알람 간격 (시간)", 1.0, 24.0, float(st.session_state.settings.get('pee_interval', 5.0)), 0.5)
+        # 단위를 분(minute)으로 변경하여 빠른 테스트 환경 제공
+        new_interval = st.number_input("소변 알람 간격 (분)", 1, 600, int(st.session_state.settings.get('pee_interval', 5)), 1)
         new_btn_h = st.slider("버튼 높이", 3.0, 6.0, float(st.session_state.settings.get('btn_h', 4.0)), 0.1)
         new_hdr_c = st.color_picker("섹션 헤더 색상", st.session_state.settings.get('hdr_color', '#475569'))
         
@@ -405,42 +407,54 @@ p_time_str = p_iso[11:16] if p_iso else "--:--"
 d_time_str = d_iso[11:16] if d_iso else "--:--"
 
 # ==========================================
-# 🧱 UI 모듈 (타이머 카운트다운 적용)
+# 🧱 UI 모듈 (타이머 통합 시각화 & 분 단위 적용)
 # ==========================================
 def render_timer():
-    interval_h = st.session_state.settings.get("pee_interval", 5.0)
+    interval_m = int(st.session_state.settings.get("pee_interval", 5)) # 분 단위 (테스트용)
     ALARM_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"
 
     components.html(f"""
     <div style="display:flex; justify-content:space-between; gap:15px; font-family:sans-serif;">
-        <div id="p_card" style="flex:1; background:#ffffff; border-radius:24px; padding:20px 10px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); transition:all 0.5s ease; position:relative;">
-            <div id="p_label" style="font-size:0.9rem; font-weight:800; color:#0284c7; letter-spacing:0.5px; margin-bottom:10px;">💧 소변 타이머</div>
-            <div style="position:relative; width:110px; height:110px; margin:0 auto;">
+        <div id="p_card" style="flex:1; background:#ffffff; border-radius:24px; padding:20px 10px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); transition:all 0.5s ease; position:relative; min-height: 200px;">
+            <div id="p_label" style="font-size:0.95rem; font-weight:800; color:#0284c7; letter-spacing:0.5px; margin-bottom:12px;">💧 소변 타이머</div>
+            
+            <div style="position:relative; width:130px; height:130px; margin:0 auto;">
                 <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
-                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f0f9ff" stroke-width="3" />
-                    <path id="p_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#38bdf8" stroke-width="3" stroke-dasharray="0, 100" stroke-linecap="round" style="transition: stroke-dasharray 1s ease-out;" />
+                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f0f9ff" stroke-width="2" />
+                    <path id="p_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-dasharray="0, 100" stroke-linecap="round" style="transition: stroke-dasharray 1s ease-out;" />
                 </svg>
-                <div id="p_tm" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-size:1.6rem; font-weight:900; color:#0369a1; letter-spacing:1px;">--:--</div>
+                
+                <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); width: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: #64748b;">최근 {p_time_str}</div>
+                    <div id="p_tm" style="font-size: 1.4rem; font-weight: 900; color: #0369a1; letter-spacing: 0.5px; line-height: 1;">--:--</div>
+                    <div style="font-size: 0.65rem; font-weight: 700; color: #94a3b8;">경과</div>
+                    <div id="p_rem" style="font-size: 0.95rem; font-weight: 800; color: #ef4444; margin-top: 2px;">남음 --:--</div>
+                </div>
             </div>
-            <div id="p_info" style="margin-top:12px; font-size:0.75rem; font-weight:800; color:#94a3b8;">남은 시간: <span id="p_rem">--:--</span></div>
         </div>
         
-        <div id="d_card" style="flex:1; background:#ffffff; border-radius:24px; padding:20px 10px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); position:relative;">
-            <div style="font-size:0.9rem; font-weight:800; color:#c2410c; letter-spacing:0.5px; margin-bottom:10px;">💩 대변</div>
-            <div style="position:relative; width:110px; height:110px; margin:0 auto;">
+        <div id="d_card" style="flex:1; background:#ffffff; border-radius:24px; padding:20px 10px; text-align:center; box-shadow:0 8px 24px rgba(149,157,165,0.08); position:relative; min-height: 200px;">
+            <div style="font-size:0.95rem; font-weight:800; color:#c2410c; letter-spacing:0.5px; margin-bottom:12px;">💩 대변 타이머</div>
+            
+            <div style="position:relative; width:130px; height:130px; margin:0 auto;">
                 <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
-                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fff7ed" stroke-width="3" />
-                    <path id="d_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fb923c" stroke-width="3" stroke-dasharray="0, 100" stroke-linecap="round" style="transition: stroke-dasharray 1s ease-out;" />
+                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fff7ed" stroke-width="2" />
+                    <path id="d_circ" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#fb923c" stroke-width="2.5" stroke-dasharray="0, 100" stroke-linecap="round" style="transition: stroke-dasharray 1s ease-out;" />
                 </svg>
-                <div id="d_tm" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-size:1.6rem; font-weight:900; color:#9a3412; letter-spacing:1px;">--:--</div>
+                
+                <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); width: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px;">
+                    <div style="font-size: 0.7rem; font-weight: 700; color: #64748b;">최근 {d_time_str}</div>
+                    <div id="d_tm" style="font-size: 1.4rem; font-weight: 900; color: #9a3412; letter-spacing: 0.5px; line-height: 1;">--:--</div>
+                    <div style="font-size: 0.65rem; font-weight: 700; color: #94a3b8;">경과</div>
+                </div>
             </div>
-            <div style="margin-top:12px; font-size:0.75rem; font-weight:800; color:#94a3b8;">최근 <span style="color:#c2410c;">{d_time_str}</span></div>
         </div>
     </div>
     <audio id="alarm_sound" src="{ALARM_URL}" preload="auto"></audio>
 
     <script>
-        const P_LIMIT = {interval_h} * 3600000; 
+        // P_LIMIT를 분 단위 설정값 기준으로 밀리초 변환 (테스트 용도)
+        const P_LIMIT = {interval_m} * 60000; 
         const D_MAX_MS = 43200000; 
         let isAlarmed = false;
 
@@ -452,23 +466,30 @@ def render_timer():
             if(p_iso) {{
                 const diff = new Date() - new Date(p_iso);
                 if(diff >= 0) {{
+                    // 경과 시간 표시 로직
                     const m = Math.floor(diff/60000);
                     p_el.innerText = String(Math.floor(m/60)).padStart(2,'0')+":"+String(m%60).padStart(2,'0');
                     
+                    // 남은 시간 계산 및 알람 로직
                     const rem_ms = P_LIMIT - diff;
                     if (rem_ms > 0) {{
                         const rm = Math.floor(rem_ms/60000);
-                        p_rem.innerText = String(Math.floor(rm/60)).padStart(2,'0')+":"+String(rm%60).padStart(2,'0');
+                        const rs = Math.floor((rem_ms%60000)/1000); // 초 단위 추가로 긴장감 조성
+                        p_rem.innerText = "남음 " + String(rm).padStart(2,'0')+":"+String(rs).padStart(2,'0');
+                        p_rem.style.color = "#0ea5e9"; // 여유 있을 때는 파란색
                         p_card.style.background = "#ffffff";
                         isAlarmed = false;
                     }} else {{
-                        p_rem.innerText = "초과!";
+                        p_rem.innerText = "🚨 초과!";
+                        p_rem.style.color = "#ef4444"; // 초과 시 붉은색
                         p_card.style.background = "#fff1f2";
                         if(!isAlarmed) {{
                             audio.play().catch(e => console.log("알람 오디오 재생 실패:", e));
                             isAlarmed = true;
                         }}
                     }}
+                    
+                    // 게이지는 설정된 알람 시간을 기준으로 차오름
                     const pct = Math.min((diff/P_LIMIT)*100, 100);
                     p_circ.setAttribute('stroke-dasharray', pct + ', 100');
                 }}
@@ -487,7 +508,7 @@ def render_timer():
         }}
         setInterval(update, 1000); update();
     </script>
-    """, height=220)
+    """, height=250)
 
 def render_summary():
     p, d, w = get_real_count('소변', target_df), get_real_count('대변', target_df), get_real_count('산책', target_df)
@@ -674,5 +695,5 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # END
-# Version: v14.1.1
+# Version: v14.1.2
 # Date: 2026-04-08
