@@ -10,7 +10,7 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.1.4 (텔레그램 자동 연동 최적화)"
+APP_VERSION = "v14.1.6 (알람 인터벌 '시간' 단위 복구)"
 UPDATE_DATE = "2026-04-09"
 
 KST = timezone(timedelta(hours=9))
@@ -82,9 +82,8 @@ if not st.session_state.logged_in:
                         default_prof = {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json", json=default_prof, timeout=5)
                         
-                        # [핵심 수정] 상훈님 성공 코드의 토큰값 기본 탑재
                         default_settings = {
-                            "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5,
+                            "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0,
                             "tg_enabled": True, 
                             "tg_token": "8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0", 
                             "tg_chat_id": "8124116628",
@@ -116,7 +115,7 @@ def load_profile():
 
 def load_settings():
     default_settings = {
-        "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5, 
+        "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0, 
         "tg_enabled": True, 
         "tg_token": "8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0", 
         "tg_chat_id": "8124116628",
@@ -203,12 +202,11 @@ if 'settings' not in st.session_state: st.session_state.settings = load_settings
 if 'pet_logs' not in st.session_state: st.session_state.pet_logs = load_data()
 if 'pet_ledger' not in st.session_state: st.session_state.pet_ledger = load_ledger()
 
-# 🚀 텔레그램 백그라운드 모니터링 데몬 (상훈님 전용 로직 이식 완료)
+# 🚀 텔레그램 백그라운드 모니터링 데몬 (시간 단위 로직 복구)
 def send_tg_msg(token, chat_id, text):
     if not token or not chat_id: return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     try: 
-        # OpenCV 버전에서 성공한 방식과 동일하게 data= 페이로드 사용
         requests.post(url, data={"chat_id": chat_id, "text": text}, timeout=10)
     except Exception as e: 
         pass
@@ -227,17 +225,18 @@ def start_bg_monitor(user_id):
                 if not settings.get("tg_enabled") or not settings.get("tg_token") or not settings.get("tg_chat_id"): 
                     continue
                 
-                interval_m = int(settings.get("pee_interval", 5))
+                # [수정] 시간 단위를 분으로 환산하여 계산
+                interval_h = float(settings.get("pee_interval", 5.0))
+                interval_m = interval_h * 60
                 
                 l_res = requests.get(f"{FIREBASE_URL}users/{user_id}/logs.json", timeout=5)
                 if l_res.status_code != 200 or not l_res.json(): continue
                 logs = l_res.json()
                 
-                # 최근 소변 시간 추적 로직
                 p_iso = ""
                 for k in sorted(logs.keys(), reverse=True):
                     act = str(logs[k])
-                    if "소변" in act and not "차감" in act and not "리셋" in act and not "끄기" in act:
+                    if "소변" in act and not any(x in act for x in ["차감", "리셋", "끄기", "알림 발송"]):
                         if '(수정)' in act and '[' in act and ']' in act:
                             ext_time = act.split('[')[1].split(']')[0]
                             date_part = k.split(' ')[0]
@@ -252,22 +251,27 @@ def start_bg_monitor(user_id):
                     now = datetime.now(timezone(timedelta(hours=9)))
                     diff_m = (now - dt_iso).total_seconds() / 60.0
                     
-                    # 설정된 분 단위를 초과했고, 이번 소변 기록에 대해 알람을 보낸 적이 없다면 발송
                     if diff_m >= interval_m and p_iso != last_alerted:
                         h = int(diff_m // 60)
                         m = int(diff_m % 60)
                         pet_name = settings.get("pet_name", "강아지")
                         time_str = f"{h}시간 {m}분" if h > 0 else f"{m}분"
                         msg = f"🚨 [Smart Pet Care] {pet_name} 소변 알람!\n\n마지막 소변 후 {time_str}이 경과했습니다.\n아이의 상태를 확인해 주세요!"
+                        
                         send_tg_msg(settings["tg_token"], settings["tg_chat_id"], msg)
-                        last_alerted = p_iso # 발송 완료 기록 업데이트
-            except Exception as e:
-                pass # 백그라운드 스레드 보호
+                        last_alerted = p_iso 
+                        
+                        try:
+                            alert_ts = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S_%f")
+                            alert_act = f"📱 알림 발송 (소변 후 {time_str} 초과)"
+                            requests.patch(f"{FIREBASE_URL}users/{user_id}/logs.json", json={alert_ts: alert_act}, timeout=5)
+                        except: pass
+
+            except Exception: pass 
     t = threading.Thread(target=job, daemon=True)
     t.start()
     return t
 
-# 백그라운드 모니터 실행
 start_bg_monitor(username)
 
 # ==========================================
@@ -332,7 +336,6 @@ with st.sidebar:
     st.divider()
 
     with st.expander("📱 텔레그램 알림 설정", expanded=False):
-        # 상훈님의 토큰과 챗봇 ID가 기본으로 입력되어 있습니다.
         tg_enabled = st.checkbox("백그라운드 텔레그램 알람 켜기", value=st.session_state.settings.get('tg_enabled', True))
         tg_token = st.text_input("Bot Token", value=st.session_state.settings.get('tg_token', '8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0'))
         tg_chat_id = st.text_input("Chat ID", value=st.session_state.settings.get('tg_chat_id', '8124116628'))
@@ -343,7 +346,8 @@ with st.sidebar:
             st.rerun()
     
     with st.expander("🎨 UI 및 타이머 간격 설정", expanded=False):
-        new_interval = st.number_input("소변 알람 간격 (분)", 1, 600, int(st.session_state.settings.get('pee_interval', 5)), 1)
+        # [수정] 다시 시간 단위로 변경 (0.5시간 단위 조정 가능)
+        new_interval = st.number_input("소변 알람 간격 (시간)", 0.5, 24.0, float(st.session_state.settings.get('pee_interval', 5.0)), 0.5)
         new_btn_h = st.slider("버튼 높이", 3.0, 6.0, float(st.session_state.settings.get('btn_h', 4.0)), 0.1)
         new_hdr_c = st.color_picker("섹션 헤더 색상", st.session_state.settings.get('hdr_color', '#475569'))
         st.markdown("**배치 순서**")
@@ -403,9 +407,8 @@ def get_iso(act_keyword, check_df):
         t   = str(check_df.iloc[i]['시간'])
         if '_' in t: t = t.split('_')[0]
         elif '.' in t: t = t.split('.')[0]
-        if '차감' in act: continue
+        if any(x in act for x in ['차감', '리셋', '끄기', '알림 발송']): continue
         if act_keyword in act:
-            if '끄기' in act or '리셋' in act: return ""
             if '(수정)' in act and '[' in act and ']' in act:
                 try:
                     extracted_time = act.split('[')[1].split(']')[0]
@@ -421,7 +424,7 @@ def get_real_count(keyword, check_df):
     for act in check_df['활동'].astype(str):
         if keyword in act:
             if '차감' in act: minus += 1
-            elif any(x in act for x in ['리셋','끄기','통계제외']): pass
+            elif any(x in act for x in ['리셋','끄기','통계제외', '알림 발송']): pass
             else: plus += 1
     return max(0, plus - minus)
 
@@ -454,10 +457,11 @@ p_time_str = p_iso[11:16] if p_iso else "--:--"
 d_time_str = d_iso[11:16] if d_iso else "--:--"
 
 # ==========================================
-# 🧱 UI 모듈
+# 🧱 UI 모듈 (시간 단위로 계산식 복구)
 # ==========================================
 def render_timer():
-    interval_m = int(st.session_state.settings.get("pee_interval", 5)) 
+    # [수정] 다시 시간 단위로 계산 (시간 * 3600000ms)
+    interval_h = float(st.session_state.settings.get("pee_interval", 5.0)) 
     ALARM_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"
 
     components.html(f"""
@@ -495,7 +499,8 @@ def render_timer():
     <audio id="alarm_sound" src="{ALARM_URL}" preload="auto"></audio>
 
     <script>
-        const P_LIMIT = {interval_m} * 60000; 
+        // [수정] 다시 시간 단위 밀리초로 변환
+        const P_LIMIT = {interval_h} * 3600000; 
         const D_MAX_MS = 43200000; 
         let isAlarmed = false;
 
@@ -507,14 +512,14 @@ def render_timer():
             if(p_iso) {{
                 const diff = new Date() - new Date(p_iso);
                 if(diff >= 0) {{
-                    const m = Math.floor(diff/60000);
-                    p_el.innerText = String(Math.floor(m/60)).padStart(2,'0')+":"+String(m%60).padStart(2,'0');
+                    const m_total = Math.floor(diff/60000);
+                    p_el.innerText = String(Math.floor(m_total/60)).padStart(2,'0')+":"+String(m_total%60).padStart(2,'0');
                     
                     const rem_ms = P_LIMIT - diff;
                     if (rem_ms > 0) {{
                         const rm = Math.floor(rem_ms/60000);
                         const rs = Math.floor((rem_ms%60000)/1000); 
-                        p_rem.innerText = "남음 " + String(rm).padStart(2,'0')+":"+String(rs).padStart(2,'0');
+                        p_rem.innerText = "남음 " + String(Math.floor(rm/60)).padStart(2,'0')+":"+String(rm%60).padStart(2,'0');
                         p_rem.style.color = "#0ea5e9"; 
                         p_card.style.background = "#ffffff";
                         isAlarmed = false;
@@ -536,8 +541,8 @@ def render_timer():
             if(d_iso) {{
                 const diff = new Date() - new Date(d_iso);
                 if(diff >= 0) {{
-                    const m = Math.floor(diff/60000);
-                    d_el.innerText = String(Math.floor(m/60)).padStart(2,'0')+":"+String(m%60).padStart(2,'0');
+                    const m_total = Math.floor(diff/60000);
+                    d_el.innerText = String(Math.floor(m_total/60)).padStart(2,'0')+":"+String(m_total%60).padStart(2,'0');
                     const pct = Math.min((diff/D_MAX_MS)*100, 100);
                     d_circ.setAttribute('stroke-dasharray', pct + ', 100');
                 }}
@@ -732,5 +737,3 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # END
-# Version: v14.1.4
-# Date: 2026-04-09
