@@ -10,7 +10,7 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.3.1 (원형 타이머 + 텔레그램 관제 통합)"
+APP_VERSION = "v14.4.0 (취침 DND 모드 & 자정 교차 계산 적용)"
 UPDATE_DATE = "2026-04-09"
 
 KST = timezone(timedelta(hours=9))
@@ -81,8 +81,10 @@ if not st.session_state.logged_in:
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/password.json", json=reg_pw, timeout=5)
                         default_prof = {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
                         requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json", json=default_prof, timeout=5)
+                        # 취침 시간 기본값 추가
                         default_settings = {
                             "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0,
+                            "sleep_start": "22:00", "sleep_end": "05:00",
                             "tg_enabled": True, "tg_token": "8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0", "tg_chat_id": "8124116628",
                             "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
                         }
@@ -113,6 +115,7 @@ def load_profile():
 def load_settings():
     default_settings = {
         "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0,
+        "sleep_start": "22:00", "sleep_end": "05:00",
         "tg_enabled": True, "tg_token": "8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0", "tg_chat_id": "8124116628",
         "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
     }
@@ -197,7 +200,7 @@ if 'settings' not in st.session_state: st.session_state.settings = load_settings
 if 'pet_logs' not in st.session_state: st.session_state.pet_logs = load_data()
 if 'pet_ledger' not in st.session_state: st.session_state.pet_ledger = load_ledger()
 
-# 🚀 텔레그램 백그라운드 모니터링 데몬 (수동 조절 동기화 지원)
+# 🚀 텔레그램 백그라운드 모니터링 데몬 (DND 취침 모드 적용)
 def send_tg_msg(token, chat_id, text):
     if not token or not chat_id: return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -205,6 +208,21 @@ def send_tg_msg(token, chat_id, text):
         requests.post(url, data={"chat_id": chat_id, "text": text}, timeout=10)
     except Exception as e: 
         pass
+
+# 취침 시간 판별 헬퍼 함수
+def is_sleeping_time(now_dt, start_str, end_str):
+    try:
+        n_m = now_dt.hour * 60 + now_dt.minute
+        sh, sm = map(int, start_str.split(':'))
+        eh, em = map(int, end_str.split(':'))
+        s_m = sh * 60 + sm
+        e_m = eh * 60 + em
+        
+        if s_m <= e_m: # 같은 날 (예: 01:00 ~ 05:00)
+            return s_m <= n_m <= e_m
+        else: # 자정 교차 (예: 22:00 ~ 05:00)
+            return n_m >= s_m or n_m <= e_m
+    except: return False
 
 @st.cache_resource
 def start_bg_monitor(user_id):
@@ -218,6 +236,14 @@ def start_bg_monitor(user_id):
                 settings = s_res.json()
                 
                 if not settings.get("tg_enabled") or not settings.get("tg_token") or not settings.get("tg_chat_id"): 
+                    continue
+                
+                now_tz = datetime.now(timezone(timedelta(hours=9)))
+                s_start = settings.get("sleep_start", "22:00")
+                s_end = settings.get("sleep_end", "05:00")
+                
+                # 🌙 현재가 취침 시간대라면 알람 스레드는 무시(Pass)
+                if is_sleeping_time(now_tz, s_start, s_end):
                     continue
                 
                 interval_h = float(settings.get("pee_interval", 5.0))
@@ -235,14 +261,12 @@ def start_bg_monitor(user_id):
                                 ext_time = act.split('[')[1].split(']')[0]
                                 date_part = k.split(' ')[0]
                                 p_ts = f"{date_part} {ext_time}"
-                            except:
-                                p_ts = k.split('_')[0]
-                        else:
-                            p_ts = k.split('_')[0]
+                            except: p_ts = k.split('_')[0]
+                        else: p_ts = k.split('_')[0]
                         break
                 
                 if p_ts and p_ts != last_alerted_ts:
-                    diff_h = (datetime.now(timezone(timedelta(hours=9))) - datetime.strptime(p_ts, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600.0
+                    diff_h = (now_tz - datetime.strptime(p_ts, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600.0
                     if diff_h >= interval_h:
                         h = int(diff_h)
                         m = int((diff_h * 60) % 60)
@@ -254,7 +278,7 @@ def start_bg_monitor(user_id):
                         last_alerted_ts = p_ts 
                         
                         try:
-                            alert_ts = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S_%f")
+                            alert_ts = now_tz.strftime("%Y-%m-%d %H:%M:%S_%f")
                             alert_act = f"📱 알림 발송 (소변 후 {time_str} 초과)"
                             requests.patch(f"{FIREBASE_URL}users/{user_id}/logs.json", json={alert_ts: alert_act}, timeout=5)
                         except: pass
@@ -355,18 +379,25 @@ with st.sidebar:
             st.success("텔레그램 설정 저장됨!")
             st.rerun()
     
-    with st.expander("⏰ 소변 알람 시간 설정", expanded=False):
+    with st.expander("⏰ 소변 알람 및 취침 설정", expanded=False):
         st.markdown("<div style='font-size:0.85rem; font-weight:800; color:#475569; margin-bottom:5px;'>소변 알람 간격 (시간 단위)</div>", unsafe_allow_html=True)
         col1, col2 = st.columns([7, 3])
         with col1:
             new_interval = st.number_input("간격(시간)", min_value=0.5, max_value=24.0, value=float(st.session_state.settings.get('pee_interval', 5.0)), step=0.5, label_visibility="collapsed")
-        with col2:
-            st.markdown("<div class='save-btn-col'>", unsafe_allow_html=True)
-            if st.button("💾 저장", key="btn_save_int", use_container_width=True):
-                st.session_state.settings['pee_interval'] = new_interval
-                save_settings(st.session_state.settings)
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown("<div style='font-size:0.85rem; font-weight:800; color:#475569; margin: 15px 0 5px 0;'>🌙 강아지 취침 시간 (알람 무음)</div>", unsafe_allow_html=True)
+        def_start = datetime.strptime(st.session_state.settings.get('sleep_start', '22:00'), "%H:%M").time()
+        def_end = datetime.strptime(st.session_state.settings.get('sleep_end', '05:00'), "%H:%M").time()
+        c_s, c_e = st.columns(2)
+        with c_s: new_s_start = st.time_input("시작", value=def_start)
+        with c_e: new_s_end = st.time_input("종료", value=def_end)
+
+        if st.button("⏰ 시간/취침 설정 저장", key="btn_save_int", use_container_width=True, type="primary"):
+            st.session_state.settings['pee_interval'] = new_interval
+            st.session_state.settings['sleep_start'] = new_s_start.strftime("%H:%M")
+            st.session_state.settings['sleep_end'] = new_s_end.strftime("%H:%M")
+            save_settings(st.session_state.settings)
+            st.rerun()
     
     with st.expander("🎨 화면 테마 및 배치 순서 설정", expanded=False):
         new_btn_h = st.slider("버튼 높이", 3.0, 6.0, float(st.session_state.settings.get('btn_h', 4.0)), 0.1)
@@ -419,7 +450,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 📊 데이터 헬퍼 (수동 시간 동기화 로직 적용)
+# 📊 데이터 헬퍼 (수동 시간 동기화 패치 적용)
 # ==========================================
 t_date = now_kst().strftime("%Y-%m-%d")
 df = st.session_state.pet_logs
@@ -432,7 +463,6 @@ def get_event_time(kw):
         t = str(df.iloc[i]['시간'])
         if kw in act:
             if any(x in act for x in ['차감', '리셋', '끄기', '알림']): continue
-            # 수동 조절 데이터 완벽 파싱
             if '(수정)' in act and '[' in act and ']' in act:
                 try:
                     ext_time = act.split('[')[1].split(']')[0]
@@ -494,7 +524,6 @@ if p_time_raw:
     expect_dt = p_dt + timedelta(hours=intv)
     p_expect = expect_dt.strftime("%H:%M")
     
-    # 알림 발송 기록이 소변 기록보다 최신이면 발송 완료
     if a_time_raw and a_time_raw > p_time_raw:
         msg_status = f"발송 완료 ({a_time_raw[11:16]})"
         msg_color = "#10b981"
@@ -505,8 +534,11 @@ if p_time_raw:
 d_disp = d_time_raw[11:16] if d_time_raw else "--:--"
 d_iso = d_time_raw.replace(" ","T")+"+09:00" if d_time_raw else ""
 
+s_start = st.session_state.settings.get('sleep_start', '22:00')
+s_end = st.session_state.settings.get('sleep_end', '05:00')
+
 # ==========================================
-# 🧱 타이머 렌더링 (원형 게이지 복구 + 3:2 배치)
+# 🧱 타이머 렌더링 (원형 게이지 + 3:2 배치 + 취침 모드 시각화)
 # ==========================================
 def render_timer():
     intv_h = float(st.session_state.settings.get("pee_interval", 5.0))
@@ -516,7 +548,7 @@ def render_timer():
     <div style="display:flex; flex-direction:row; gap:15px; font-family:'Malgun Gothic', sans-serif; width: 100%;">
         
         <div id="p_card" style="flex:3; background:#ffffff; border-radius:24px; padding:15px 10px; box-shadow:0 8px 24px rgba(149,157,165,0.08); transition:all 0.5s ease; display:flex; flex-direction:column;">
-            <div style="font-size:0.95rem; font-weight:800; color:#0284c7; text-align:center; margin-bottom:10px;">💧 소변 타이머</div>
+            <div id="p_title" style="font-size:0.95rem; font-weight:800; color:#0284c7; text-align:center; margin-bottom:10px;">💧 소변 타이머</div>
             
             <div style="display:flex; align-items:center; justify-content:space-evenly; flex:1;">
                 <div style="position:relative; width:90px; height:90px;">
@@ -525,7 +557,7 @@ def render_timer():
                         <path id="p_circ" d="M18 2 a 16 16 0 0 1 0 32 a 16 16 0 0 1 0 -32" fill="none" stroke="#38bdf8" stroke-width="3" stroke-dasharray="0, 100" stroke-linecap="round" style="transition: stroke-dasharray 1s ease-out;" />
                     </svg>
                     <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); width: 100%; text-align:center;">
-                        <div style="font-size:0.65rem; font-weight:700; color:#64748b;">남은 시간</div>
+                        <div id="p_rem_label" style="font-size:0.65rem; font-weight:700; color:#64748b;">남은 시간</div>
                         <div id="p_rem" style="font-size:1.15rem; font-weight:900; color:#0369a1; line-height:1.2;">--:--</div>
                     </div>
                 </div>
@@ -560,36 +592,68 @@ def render_timer():
     <script>
         const P_LIMIT = {intv_h} * 3600000; 
         const D_MAX_MS = 43200000; 
+        const s_start = "{s_start}";
+        const s_end = "{s_end}";
         let isAlarmed = false;
 
+        function isSleeping(now) {{
+            const n_m = now.getHours() * 60 + now.getMinutes();
+            const s_arr = s_start.split(':');
+            const e_arr = s_end.split(':');
+            const sm = parseInt(s_arr[0]) * 60 + parseInt(s_arr[1]);
+            const em = parseInt(e_arr[0]) * 60 + parseInt(e_arr[1]);
+            
+            if (sm <= em) {{ return n_m >= sm && n_m <= em; }} 
+            else {{ return n_m >= sm || n_m <= em; }} // 자정 교차
+        }}
+
         function update() {{ 
-            const p_rem = document.getElementById('p_rem'), p_circ = document.getElementById('p_circ'), p_card = document.getElementById('p_card');
+            const now = new Date();
+            const p_rem = document.getElementById('p_rem');
+            const p_rem_lbl = document.getElementById('p_rem_label');
+            const p_circ = document.getElementById('p_circ');
+            const p_card = document.getElementById('p_card');
+            const p_title = document.getElementById('p_title');
             const audio = document.getElementById('alarm_sound');
             const p_iso = "{p_iso}"; 
             
-            if(p_iso) {{
-                const diff = new Date() - new Date(p_iso);
-                if(diff >= 0) {{
-                    const rem = P_LIMIT - diff;
-                    const r_abs = Math.abs(rem);
-                    // 초 생략하고 시/분만 렌더링
-                    const r_h = Math.floor(r_abs/3600000), r_m = Math.floor((r_abs%3600000)/60000);
-                    
-                    if (rem > 0) {{
-                        p_rem.innerText = String(r_h).padStart(2,'0') + ":" + String(r_m).padStart(2,'0');
-                        p_rem.style.color = "#0369a1"; p_card.style.background = "#ffffff"; isAlarmed = false;
-                    }} else {{
-                        p_rem.innerText = "-" + String(r_h).padStart(2,'0') + ":" + String(r_m).padStart(2,'0');
-                        p_rem.style.color = "#ef4444"; p_card.style.background = "#fff1f2";
-                        if(!isAlarmed) {{ audio.play().catch(e => console.log(e)); isAlarmed = true; }}
+            // 🌙 취침 모드 시각화 처리
+            if (isSleeping(now)) {{
+                p_card.style.background = "#f8fafc"; // 차분한 배경
+                p_title.innerText = "🌙 소변 타이머 (취침 중)";
+                p_title.style.color = "#64748b";
+                p_rem_lbl.innerText = "알람 끔";
+                p_rem.innerText = "Zzz";
+                p_rem.style.color = "#94a3b8";
+                p_circ.setAttribute('stroke-dasharray', '0, 100'); // 게이지 멈춤
+            }} else {{
+                p_title.innerText = "💧 소변 타이머";
+                p_title.style.color = "#0284c7";
+                p_rem_lbl.innerText = "남은 시간";
+                
+                if(p_iso) {{
+                    const diff = now - new Date(p_iso);
+                    if(diff >= 0) {{
+                        const rem = P_LIMIT - diff;
+                        const r_abs = Math.abs(rem);
+                        const r_h = Math.floor(r_abs/3600000), r_m = Math.floor((r_abs%3600000)/60000);
+                        
+                        if (rem > 0) {{
+                            p_rem.innerText = String(r_h).padStart(2,'0') + ":" + String(r_m).padStart(2,'0');
+                            p_rem.style.color = "#0369a1"; p_card.style.background = "#ffffff"; isAlarmed = false;
+                        }} else {{
+                            p_rem.innerText = "-" + String(r_h).padStart(2,'0') + ":" + String(r_m).padStart(2,'0');
+                            p_rem.style.color = "#ef4444"; p_card.style.background = "#fff1f2";
+                            if(!isAlarmed) {{ audio.play().catch(e => console.log(e)); isAlarmed = true; }}
+                        }}
+                        p_circ.setAttribute('stroke-dasharray', Math.min((diff/P_LIMIT)*100, 100) + ', 100');
                     }}
-                    p_circ.setAttribute('stroke-dasharray', Math.min((diff/P_LIMIT)*100, 100) + ', 100');
                 }}
             }}
 
             const d_el = document.getElementById('d_elap'), d_circ = document.getElementById('d_circ'), d_iso = "{d_iso}";
             if(d_iso) {{
-                const diff = new Date() - new Date(d_iso);
+                const diff = now - new Date(d_iso);
                 if(diff >= 0) {{
                     const d_h = Math.floor(diff/3600000), d_m = Math.floor((diff%3600000)/60000);
                     d_el.innerText = String(d_h).padStart(2,'0') + ":" + String(d_m).padStart(2,'0');
