@@ -10,7 +10,7 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.1.6 (알람 인터벌 '시간' 단위 복구)"
+APP_VERSION = "v14.1.7 (사이드바 UI 구조 최적화)"
 UPDATE_DATE = "2026-04-09"
 
 KST = timezone(timedelta(hours=9))
@@ -202,7 +202,7 @@ if 'settings' not in st.session_state: st.session_state.settings = load_settings
 if 'pet_logs' not in st.session_state: st.session_state.pet_logs = load_data()
 if 'pet_ledger' not in st.session_state: st.session_state.pet_ledger = load_ledger()
 
-# 🚀 텔레그램 백그라운드 모니터링 데몬 (시간 단위 로직 복구)
+# 🚀 텔레그램 백그라운드 모니터링 데몬
 def send_tg_msg(token, chat_id, text):
     if not token or not chat_id: return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -217,7 +217,7 @@ def start_bg_monitor(user_id):
         last_alerted = ""
         while True:
             try:
-                time.sleep(30) # 30초 주기 모니터링
+                time.sleep(30)
                 s_res = requests.get(f"{FIREBASE_URL}users/{user_id}/settings.json", timeout=5)
                 if s_res.status_code != 200 or not s_res.json(): continue
                 settings = s_res.json()
@@ -225,7 +225,6 @@ def start_bg_monitor(user_id):
                 if not settings.get("tg_enabled") or not settings.get("tg_token") or not settings.get("tg_chat_id"): 
                     continue
                 
-                # [수정] 시간 단위를 분으로 환산하여 계산
                 interval_h = float(settings.get("pee_interval", 5.0))
                 interval_m = interval_h * 60
                 
@@ -317,6 +316,8 @@ div.stButton > button:active {{ transform: scale(0.97) !important; background-co
 .stTabs [data-baseweb="tab"] {{ height: 3.2rem !important; font-weight: 800 !important; padding: 0 15px !important; }}
 hr {{ margin: 15px 0 !important; border-color: #f1f5f9 !important; }}
 .streamlit-expanderHeader {{ font-weight: 800 !important; font-size: 1rem !important; color: #1e293b !important; padding: 15px 20px !important; }} 
+/* 간격 조정 저장 버튼 맞춤형 스타일 */
+.save-btn-col button {{ height: 2.8rem !important; padding: 0 !important; font-size: 0.95rem !important; background-color: #f1f5f9 !important; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -335,6 +336,7 @@ with st.sidebar:
     st.caption(f"📌 버전: {APP_VERSION}")
     st.divider()
 
+    # 1. 텔레그램 설정
     with st.expander("📱 텔레그램 알림 설정", expanded=False):
         tg_enabled = st.checkbox("백그라운드 텔레그램 알람 켜기", value=st.session_state.settings.get('tg_enabled', True))
         tg_token = st.text_input("Bot Token", value=st.session_state.settings.get('tg_token', '8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0'))
@@ -342,21 +344,42 @@ with st.sidebar:
         if st.button("텔레그램 설정 저장", use_container_width=True, type="primary"):
             st.session_state.settings.update({'tg_enabled': tg_enabled, 'tg_token': tg_token, 'tg_chat_id': tg_chat_id})
             save_settings(st.session_state.settings)
-            st.success("텔레그램 설정이 저장되었습니다.")
+            st.success("텔레그램 설정 저장됨!")
             st.rerun()
     
-    with st.expander("🎨 UI 및 타이머 간격 설정", expanded=False):
-        # [수정] 다시 시간 단위로 변경 (0.5시간 단위 조정 가능)
-        new_interval = st.number_input("소변 알람 간격 (시간)", 0.5, 24.0, float(st.session_state.settings.get('pee_interval', 5.0)), 0.5)
+    # 2. [신규 추가] 소변 알람 설정 전용 (간격 + 버튼 병렬 배치)
+    with st.expander("⏰ 소변 알람 시간 설정", expanded=False):
+        st.markdown("<div style='font-size:0.85rem; font-weight:800; color:#475569; margin-bottom:5px;'>소변 알람 간격 (시간 단위)</div>", unsafe_allow_html=True)
+        col1, col2 = st.columns([7, 3])
+        with col1:
+            new_interval = st.number_input("간격(시간)", min_value=0.5, max_value=24.0, value=float(st.session_state.settings.get('pee_interval', 5.0)), step=0.5, label_visibility="collapsed")
+        with col2:
+            st.markdown("<div class='save-btn-col'>", unsafe_allow_html=True)
+            if st.button("💾 저장", key="btn_save_int", use_container_width=True):
+                st.session_state.settings['pee_interval'] = new_interval
+                save_settings(st.session_state.settings)
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+    
+    # 3. [개선] UI 설정 및 배치 순서 (2열 구조로 압축)
+    with st.expander("🎨 화면 테마 및 배치 순서 설정", expanded=False):
         new_btn_h = st.slider("버튼 높이", 3.0, 6.0, float(st.session_state.settings.get('btn_h', 4.0)), 0.1)
         new_hdr_c = st.color_picker("섹션 헤더 색상", st.session_state.settings.get('hdr_color', '#475569'))
-        st.markdown("**배치 순서**")
+        
+        st.markdown("<div style='font-size:0.85rem; font-weight:800; color:#475569; margin: 10px 0 5px 0;'>메뉴 배치 순서</div>", unsafe_allow_html=True)
+        
+        # 메뉴 순서를 2개의 컬럼으로 나누어 수직 길이 50% 단축
         new_order = {}
-        for k, v in st.session_state.settings.get('order', {}).items():
-            new_order[k] = st.number_input(k, min_value=1, max_value=20, value=int(v), step=1)
+        order_items = list(st.session_state.settings.get('order', {}).items())
+        c1, c2 = st.columns(2)
+        for i, (k, v) in enumerate(order_items):
+            if i % 2 == 0:
+                with c1: new_order[k] = st.number_input(k, min_value=1, max_value=20, value=int(v), step=1)
+            else:
+                with c2: new_order[k] = st.number_input(k, min_value=1, max_value=20, value=int(v), step=1)
             
-        if st.button("UI 설정 저장", use_container_width=True, type="primary"):
-            st.session_state.settings.update({'pee_interval': new_interval, 'btn_h': new_btn_h, 'hdr_color': new_hdr_c, 'order': new_order})
+        if st.button("UI/배치 설정 저장", use_container_width=True, type="primary"):
+            st.session_state.settings.update({'btn_h': new_btn_h, 'hdr_color': new_hdr_c, 'order': new_order})
             save_settings(st.session_state.settings)
             st.rerun() 
 
@@ -457,10 +480,9 @@ p_time_str = p_iso[11:16] if p_iso else "--:--"
 d_time_str = d_iso[11:16] if d_iso else "--:--"
 
 # ==========================================
-# 🧱 UI 모듈 (시간 단위로 계산식 복구)
+# 🧱 UI 모듈
 # ==========================================
 def render_timer():
-    # [수정] 다시 시간 단위로 계산 (시간 * 3600000ms)
     interval_h = float(st.session_state.settings.get("pee_interval", 5.0)) 
     ALARM_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"
 
@@ -499,7 +521,6 @@ def render_timer():
     <audio id="alarm_sound" src="{ALARM_URL}" preload="auto"></audio>
 
     <script>
-        // [수정] 다시 시간 단위 밀리초로 변환
         const P_LIMIT = {interval_h} * 3600000; 
         const D_MAX_MS = 43200000; 
         let isAlarmed = false;
