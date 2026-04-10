@@ -10,7 +10,7 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.4.2 (알람 정밀도/중복/DND 완벽 패치)"
+APP_VERSION = "v14.5.0 (타이머JS/알람timezone/pet_name 버그픽스)"
 UPDATE_DATE = "2026-04-10"
 
 KST = timezone(timedelta(hours=9))
@@ -238,12 +238,19 @@ def start_bg_monitor(user_id):
                 
                 # [패치 2 적용] 발송 기록 아이디가 다를 때만 1회 발송 수행
                 if p_ts and p_raw_key != last_alerted_event_id:
-                    diff_sec = (now_tz - datetime.strptime(p_ts, "%Y-%m-%d %H:%M:%S")).total_seconds()
-                    
+                    # [버그픽스] timezone-aware(now_tz) vs naive(strptime) 뺄셈 오류 수정
+                    parsed_dt = datetime.strptime(p_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=9)))
+                    diff_sec = (now_tz - parsed_dt).total_seconds()
+
                     if diff_sec >= interval_sec:
                         h = int(diff_sec // 3600)
                         m = int((diff_sec % 3600) // 60)
-                        pet_name = settings.get("pet_name", "강아지")
+                        # [버그픽스] pet_name은 profile에 저장됨 (settings가 아님)
+                        try:
+                            p_res = requests.get(f"{FIREBASE_URL}users/{user_id}/profile.json", timeout=5)
+                            pet_name = p_res.json().get("pet_name", "강아지") if p_res.status_code == 200 and p_res.json() else "강아지"
+                        except Exception:
+                            pet_name = "강아지"
                         time_str = f"{h}시간 {m}분" if h > 0 else f"{m}분"
                         msg = f"🚨 [Smart Pet Care] {pet_name} 소변 알람!\n\n마지막 소변 후 {time_str}이 경과했습니다.\n아이의 상태를 확인해 주세요!"
                         
@@ -568,7 +575,7 @@ def render_timer():
         function update() {{ 
             const now = new Date();
             const p_rem = document.getElementById('p_rem');
-            const p_rem_lbl = document.getElementById('p_rem_label');
+            const p_rem_lbl = document.getElementById('p_rem_lbl');
             const p_circ = document.getElementById('p_circ');
             const p_card = document.getElementById('p_card');
             const p_title = document.getElementById('p_title');
