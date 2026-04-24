@@ -10,8 +10,8 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.5.0 (타이머JS/알람timezone/pet_name 버그픽스)"
-UPDATE_DATE = "2026-04-10"
+APP_VERSION = "v14.6.0 (직전취소 버그픽스 + 클라우드 알림 스크립트)"
+UPDATE_DATE = "2026-04-24"
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
@@ -809,9 +809,13 @@ st.divider()
 if not target_df.empty:
     last_act = str(target_df.iloc[-1]['활동'])
     last_t   = str(target_df.iloc[-1]['시간'])[11:19]
+    last_key = str(target_df.iloc[-1]['시간'])
     if st.button(f"❌ 직전 취소: [{last_t}] {last_act}", use_container_width=True):
         try:
-            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{target_df.iloc[-1]['시간']}.json", timeout=5).raise_for_status()
+            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{last_key}.json", timeout=5).raise_for_status()
+            st.session_state.pet_logs = st.session_state.pet_logs[
+                st.session_state.pet_logs['시간'].astype(str) != last_key
+            ].reset_index(drop=True)
             st.rerun()
         except: st.error("취소 실패")
 
