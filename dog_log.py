@@ -125,19 +125,29 @@ if not st.session_state.logged_in:
                 refresh_tok = result.get("refreshToken", "")
 
                 # 마이그레이션: 기존 DB 비밀번호 계정 → Firebase Auth로 이전
+                # Firebase Auth 최소 6자리 요건: 짧으면 패딩 처리
+                def _fb_pw(pw: str) -> str:
+                    return pw if len(pw) >= 6 else pw + ("_" * (6 - len(pw)))
+
                 if not id_tok:
                     err = result.get("error", {}).get("message", "")
-                    if err in ("EMAIL_NOT_FOUND", "INVALID_LOGIN_CREDENTIALS", "INVALID_PASSWORD"):
+                    if err in ("EMAIL_NOT_FOUND", "INVALID_LOGIN_CREDENTIALS", "INVALID_PASSWORD", "WEAK_PASSWORD"):
                         try:
                             old_res = requests.get(f"{FIREBASE_URL}users/{login_id}/password.json", timeout=5)
                             if old_res.status_code == 200 and old_res.json() == login_pw:
-                                signup_r = auth_signup(login_id, login_pw)
+                                signup_r = auth_signup(login_id, _fb_pw(login_pw))
                                 id_tok = signup_r.get("idToken", "")
                                 refresh_tok = signup_r.get("refreshToken", "")
                                 if id_tok:
                                     requests.delete(f"{FIREBASE_URL}users/{login_id}/password.json", timeout=5)
                         except Exception:
                             pass
+
+                # 이미 마이그레이션된 계정: 패딩 비밀번호로 재시도
+                if not id_tok and len(login_pw) < 6:
+                    retry = auth_login(login_id, _fb_pw(login_pw))
+                    id_tok = retry.get("idToken", "")
+                    refresh_tok = retry.get("refreshToken", "")
 
                 if id_tok:
                     if auto_login:
