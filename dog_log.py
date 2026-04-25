@@ -10,7 +10,7 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.7.0 (재로그인 데이터 소실 버그 완전 수정)"
+APP_VERSION = "v14.8.0 (Firebase 동기화 오류 개선 + 낙관적 UI 업데이트)"
 UPDATE_DATE = "2026-04-25"
 
 KST = timezone(timedelta(hours=9))
@@ -159,13 +159,18 @@ def load_data():
 
 def add_record(act, c_time=None):
     t = c_time if c_time else _unique_ts()
+    # UI 즉시 반응 (Firebase 결과와 무관)
+    st.session_state.pet_logs = pd.concat(
+        [st.session_state.pet_logs, pd.DataFrame([{"시간": t, "활동": act}])],
+        ignore_index=True
+    )
+    # Firebase 동기화 (실패해도 UI는 유지)
     try:
         res = requests.patch(f"{FIREBASE_URL}users/{username}/logs.json", json={t: act}, timeout=8)
-        res.raise_for_status()
-    except Exception:
-        st.error("⚠️ 저장 실패 — 인터넷 연결을 확인하고 다시 눌러주세요.")
-        return
-    st.session_state.pet_logs = pd.concat([st.session_state.pet_logs, pd.DataFrame([{"시간": t, "활동": act}])], ignore_index=True)
+        if not res.ok:
+            st.warning(f"⚠️ 클라우드 동기화 실패 (HTTP {res.status_code}) — 앱은 정상 작동하나 재시작 시 기록이 유실될 수 있습니다. Firebase 콘솔에서 데이터베이스 규칙을 확인해 주세요.")
+    except Exception as e:
+        st.warning(f"⚠️ 네트워크 오류로 클라우드 저장 실패 — 로컬에는 저장됨. ({type(e).__name__})")
     st.rerun()
 
 def load_ledger():
