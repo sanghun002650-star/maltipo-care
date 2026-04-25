@@ -10,8 +10,8 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.6.0 (직전취소 버그픽스 + 클라우드 알림 스크립트)"
-UPDATE_DATE = "2026-04-24"
+APP_VERSION = "v14.7.0 (재로그인 데이터 소실 버그 완전 수정)"
+UPDATE_DATE = "2026-04-25"
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
@@ -30,6 +30,8 @@ if 'force_logout' not in st.session_state: st.session_state.force_logout = False
 # ==========================================
 saved_user = cookie_manager.get(cookie="saved_username")
 if saved_user and not st.session_state.logged_in and not st.session_state.force_logout:
+    for key in ['pet_logs', 'pet_ledger', 'profile', 'settings']:
+        st.session_state.pop(key, None)
     st.session_state.logged_in = True
     st.session_state.username = saved_user
     st.rerun()
@@ -57,6 +59,8 @@ if not st.session_state.logged_in:
                             cookie_manager.set("saved_username", login_id, expires_at=datetime.now() + timedelta(days=180))
                         else:
                             cookie_manager.delete("saved_username")
+                        for key in ['pet_logs', 'pet_ledger', 'profile', 'settings']:
+                            st.session_state.pop(key, None)
                         st.session_state.force_logout = False
                         st.session_state.logged_in = True
                         st.session_state.username = login_id
@@ -139,17 +143,28 @@ def save_settings(settings_data):
     except: pass
 
 def load_data():
-    try:
-        res = requests.get(f"{FIREBASE_URL}users/{username}/logs.json", timeout=5)
-        if res.status_code == 200 and res.json():
-            return pd.DataFrame([{"시간": k, "활동": v} for k, v in res.json().items()]).sort_values("시간").reset_index(drop=True)
-    except: pass
+    for attempt in range(3):
+        try:
+            res = requests.get(f"{FIREBASE_URL}users/{username}/logs.json", timeout=8)
+            if res.status_code == 200:
+                raw = res.json()
+                if raw:
+                    return pd.DataFrame([{"시간": k, "활동": v} for k, v in raw.items()]).sort_values("시간").reset_index(drop=True)
+                return pd.DataFrame(columns=["시간", "활동"])
+        except Exception:
+            if attempt == 2:
+                st.warning("⚠️ Firebase 데이터 로드 실패. 새로고침 버튼을 눌러주세요.")
+            time.sleep(1)
     return pd.DataFrame(columns=["시간", "활동"])
 
 def add_record(act, c_time=None):
     t = c_time if c_time else _unique_ts()
-    try: requests.patch(f"{FIREBASE_URL}users/{username}/logs.json", json={t: act}, timeout=5)
-    except: return
+    try:
+        res = requests.patch(f"{FIREBASE_URL}users/{username}/logs.json", json={t: act}, timeout=8)
+        res.raise_for_status()
+    except Exception:
+        st.error("⚠️ 저장 실패 — 인터넷 연결을 확인하고 다시 눌러주세요.")
+        return
     st.session_state.pet_logs = pd.concat([st.session_state.pet_logs, pd.DataFrame([{"시간": t, "활동": act}])], ignore_index=True)
     st.rerun()
 
@@ -329,6 +344,8 @@ with st.sidebar:
     
     if st.button("🔒 로그아웃", use_container_width=True):
         cookie_manager.delete("saved_username")
+        for key in ['pet_logs', 'pet_ledger', 'profile', 'settings']:
+            st.session_state.pop(key, None)
         st.session_state.force_logout = True
         st.session_state.logged_in = False
         time.sleep(0.3); st.rerun()
@@ -806,6 +823,13 @@ for mod_name, _ in sorted(ui_order.items(), key=lambda x: int(x[1])):
     elif mod_name == "가계부": render_ledger()
 
 st.divider()
+
+# ☁️ 데이터 새로고침
+if st.button("☁️ 데이터 새로고침", use_container_width=True):
+    for key in ['pet_logs', 'pet_ledger', 'profile', 'settings']:
+        st.session_state.pop(key, None)
+    st.rerun()
+
 if not target_df.empty:
     last_act = str(target_df.iloc[-1]['활동'])
     last_t   = str(target_df.iloc[-1]['시간'])[11:19]
