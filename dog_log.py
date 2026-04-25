@@ -158,7 +158,8 @@ if not st.session_state.logged_in:
                     c.update({"id_token": id_tok, "refresh_token": refresh_tok, "token_time": time.time()})
                     time.sleep(0.3); st.rerun()
                 else:
-                    st.error("❌ 아이디 또는 비밀번호가 틀렸습니다.")
+                    err_code = result.get("error", {}).get("message", "UNKNOWN")
+                    st.error(f"❌ 로그인 실패 — Firebase 오류: `{err_code}`")
             else:
                 st.warning("아이디와 비밀번호를 모두 입력하세요.")
                 
