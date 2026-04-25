@@ -10,7 +10,7 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.8.0 (Firebase 동기화 오류 개선 + 낙관적 UI 업데이트)"
+APP_VERSION = "v14.9.0 (활동 로그 최신순 + 전체 기록 탭 추가)"
 UPDATE_DATE = "2026-04-25"
 
 KST = timezone(timedelta(hours=9))
@@ -755,15 +755,41 @@ def render_deduct():
             if st.button("🐾 -1", use_container_width=True): add_record("🦮 산책 차감 (-1)")
 
 def render_log():
-    with st.expander(f"📋 활동 로그 ({len(target_df)}건)", expanded=False):
-        search = st.text_input("🔍 검색", key="log_search")
-        if not target_df.empty:
-            log_display = target_df.copy()
-            if search: log_display = log_display[log_display['활동'].str.contains(search, na=False)]
-            log_display['시간'] = log_display['시간'].astype(str).str[11:19]
-            log_display = log_display.sort_values('시간', ascending=False).reset_index(drop=True)
-            log_display.index += 1
-            st.dataframe(log_display, use_container_width=True)
+    total_all = len(df) if not df.empty else 0
+    today_cnt = len(target_df) if not target_df.empty else 0
+    with st.expander(f"📋 활동 로그 — 오늘 {today_cnt}건 / 전체 {total_all}건", expanded=False):
+        tab_today, tab_all = st.tabs([f"📅 오늘 ({today_cnt}건)", f"📂 전체 ({total_all}건)"])
+
+        with tab_today:
+            search_t = st.text_input("🔍 검색", key="log_search_today")
+            if target_df.empty:
+                st.info("오늘 기록 없음")
+            else:
+                disp = target_df.copy()
+                if search_t:
+                    disp = disp[disp['활동'].str.contains(search_t, na=False)]
+                disp['시간'] = disp['시간'].astype(str).str[11:19]
+                disp = disp.sort_values('시간', ascending=False).reset_index(drop=True)
+                disp.index += 1
+                st.dataframe(disp, use_container_width=True,
+                             column_config={"시간": st.column_config.TextColumn("🕐 시간", width="small"),
+                                            "활동": st.column_config.TextColumn("📝 활동")})
+
+        with tab_all:
+            search_a = st.text_input("🔍 검색", key="log_search_all")
+            if df.empty:
+                st.info("기록 없음")
+            else:
+                disp_all = df.copy()
+                if search_a:
+                    disp_all = disp_all[disp_all['활동'].str.contains(search_a, na=False)]
+                # 날짜+시간 표시, 최신순 정렬
+                disp_all['시간'] = disp_all['시간'].astype(str).str[:19]
+                disp_all = disp_all.sort_values('시간', ascending=False).reset_index(drop=True)
+                disp_all.index += 1
+                st.dataframe(disp_all, use_container_width=True,
+                             column_config={"시간": st.column_config.TextColumn("🕐 날짜·시간", width="medium"),
+                                            "활동": st.column_config.TextColumn("📝 활동")})
 
 def render_ledger():
     with st.expander("💰 반려견 가계부 (상세)", expanded=False):
