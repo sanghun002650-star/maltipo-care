@@ -1,196 +1,149 @@
 """
-pee_alert_monitor.py  —  Smart Pet Care 클라우드 알림 데몬
-===========================================================
-Railway / Render / 라즈베리파이 등 24시간 서버에서 실행합니다.
+pee_alert_monitor.py
+====================
+24시간 클라우드 서버에서 실행되는 소변 알림 스크립트.
 
-Firebase DB를 주기적으로 조회하여 마지막 소변 기록이
-사용자가 설정한 목표 간격(pee_interval)을 초과하면
-텔레그램으로 알림 메시지를 발송합니다.
+Firebase DB를 주기적으로 확인하여, 마지막 소변 기록이
+설정된 목표 간격(pee_interval_h)을 초과하면 텔레그램 메시지를 발송합니다.
 
-실행:
+실행 방법:
     pip install requests
     python pee_alert_monitor.py
+
+배포 환경: Railway / Render / Google Cloud Run / 라즈베리파이 등
 """
 
 import time
 import requests
 from datetime import datetime, timezone, timedelta
 
-# ─────────────────────────────────────────────
-# 설정 (dog_log.py 와 동일한 값)
-# ─────────────────────────────────────────────
-FIREBASE_URL     = "https://petcare-test-c28cd-default-rtdb.asia-southeast1.firebasedatabase.app/"
-CHECK_EVERY_SEC  = 60       # Firebase 확인 주기 (초)
-KST              = timezone(timedelta(hours=9))
+# ============================================================
+# 설정 (Firebase URL 은 dog_log.py 와 동일하게 맞추세요)
+# ============================================================
+FIREBASE_URL  = "https://petcare-test-c28cd-default-rtdb.asia-southeast1.firebasedatabase.app/"
+TELEGRAM_TOKEN = "8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0"
+TELEGRAM_CHAT_ID = "8124116628"
 
+CHECK_INTERVAL_SEC = 60   # Firebase 확인 주기 (초)
+KST = timezone(timedelta(hours=9))
 
+# ============================================================
+# 헬퍼 함수
+# ============================================================
 def now_kst():
     return datetime.now(KST)
 
-
-def send_telegram(token: str, chat_id: str, message: str):
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+def send_telegram(message: str):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        res = requests.post(url, data={"chat_id": chat_id, "text": message, "parse_mode": "HTML"}, timeout=10)
+        res = requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=10)
         res.raise_for_status()
         print(f"[{now_kst():%H:%M:%S}] ✅ 텔레그램 전송 완료")
     except Exception as e:
         print(f"[{now_kst():%H:%M:%S}] ❌ 텔레그램 전송 실패: {e}")
 
-
-def firebase_get(path: str):
+def get_firebase(path: str):
     try:
         res = requests.get(f"{FIREBASE_URL}{path}.json", timeout=5)
         if res.status_code == 200:
             return res.json()
     except Exception as e:
-        print(f"[{now_kst():%H:%M:%S}] ⚠️ Firebase 읽기 실패 ({path}): {e}")
+        print(f"[{now_kst():%H:%M:%S}] ⚠️ Firebase 읽기 실패: {e}")
     return None
 
-
-def get_all_users() -> list:
-    data = firebase_get("users")
+def get_users() -> list:
+    data = get_firebase("users")
     return list(data.keys()) if isinstance(data, dict) else []
 
-
-def is_sleeping(now_dt: datetime, start_str: str, end_str: str) -> bool:
-    """취침 시간대(DND)이면 True"""
-    try:
-        n_m = now_dt.hour * 60 + now_dt.minute
-        sh, sm = map(int, start_str.split(':'))
-        eh, em = map(int, end_str.split(':'))
-        s_m, e_m = sh * 60 + sm, eh * 60 + em
-        if s_m <= e_m:
-            return s_m <= n_m <= e_m
-        return n_m >= s_m or n_m <= e_m
-    except Exception:
-        return False
-
-
-def get_last_pee(logs: dict):
-    """마지막 소변 이벤트의 (raw_key, datetime) 반환"""
-    for key in sorted(logs.keys(), reverse=True):
-        act = str(logs[key])
-        if "소변" not in act:
-            continue
-        if any(x in act for x in ["차감", "리셋", "끄기", "알림 발송"]):
-            continue
-
-        # 수정 기록이면 괄호 안 시각 추출
-        if "(수정)" in act and "[" in act and "]" in act:
-            try:
-                ext_time = act.split("[")[1].split("]")[0]
-                date_part = key.split(" ")[0]
-                ts_str = f"{date_part} {ext_time}"
-            except Exception:
-                ts_str = key.split("_")[0]
-        else:
-            ts_str = key.split("_")[0]
-
-        try:
-            dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
-            return key, dt
-        except ValueError:
-            continue
-
-    return None, None
-
-
-# ─────────────────────────────────────────────
-# 중복 발송 방지: 마지막으로 알림 보낸 이벤트 키 저장
-# ─────────────────────────────────────────────
-_last_alerted: dict = {}   # {username: raw_key}
-
-
-def check_user(username: str):
-    settings = firebase_get(f"users/{username}/settings")
-    if not isinstance(settings, dict):
-        return
-
-    # 텔레그램 설정 확인
-    if not settings.get("tg_enabled"):
-        return
-    tg_token   = settings.get("tg_token", "")
-    tg_chat_id = settings.get("tg_chat_id", "")
-    if not tg_token or not tg_chat_id:
-        return
-
-    now = now_kst()
-
-    # 취침 시간대 → 알림 건너뜀
-    if is_sleeping(now, settings.get("sleep_start", "22:00"), settings.get("sleep_end", "05:00")):
-        return
-
-    logs = firebase_get(f"users/{username}/logs")
+def get_last_pee_time(username: str):
+    """마지막 소변 기록의 datetime을 반환 (없으면 None)"""
+    logs = get_firebase(f"users/{username}/logs")
     if not isinstance(logs, dict):
+        return None
+    pee_times = []
+    for ts_key, activity in logs.items():
+        if not isinstance(activity, str):
+            continue
+        if "소변" in activity and "차감" not in activity and "리셋" not in activity and "끄기" not in activity:
+            # 타임스탬프 파싱 (형식: "2026-04-08 13:45:22_123456" 또는 "2026-04-08 13:45:22")
+            ts_clean = ts_key.split("_")[0].strip()
+            try:
+                dt = datetime.strptime(ts_clean, "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
+                pee_times.append(dt)
+            except ValueError:
+                pass
+    return max(pee_times) if pee_times else None
+
+def get_interval_hours(username: str) -> float:
+    settings = get_firebase(f"users/{username}/settings")
+    if isinstance(settings, dict):
+        return float(settings.get("pee_interval_h", 5.0))
+    return 5.0
+
+# ============================================================
+# 알림 상태 추적 (메모리 기반 - 재시작 시 초기화됨)
+# 같은 초과 구간에서 중복 발송 방지용
+# ============================================================
+# notified_at[username] = 마지막으로 알림을 보낸 소변 기록 시각
+notified_at: dict = {}
+
+# ============================================================
+# 메인 루프
+# ============================================================
+def check_all_users():
+    users = get_users()
+    if not users:
+        print(f"[{now_kst():%H:%M:%S}] 사용자 없음")
         return
 
-    raw_key, last_pee_dt = get_last_pee(logs)
-    if last_pee_dt is None:
-        return
+    for username in users:
+        last_pee = get_last_pee_time(username)
+        if last_pee is None:
+            continue
 
-    interval_h  = float(settings.get("pee_interval", 5.0))
-    interval_td = timedelta(hours=interval_h)
-    elapsed     = now - last_pee_dt
+        interval_h = get_interval_hours(username)
+        interval_td = timedelta(hours=interval_h)
+        elapsed = now_kst() - last_pee
+        remaining = interval_td - elapsed
 
-    print(f"[{now:%H:%M:%S}] 👤 {username} | 마지막소변: {last_pee_dt:%H:%M} | "
-          f"경과: {int(elapsed.total_seconds()//3600)}h{int((elapsed.total_seconds()%3600)//60)}m | "
-          f"목표: {interval_h}h")
+        print(f"[{now_kst():%H:%M:%S}] 👤 {username} | 마지막소변: {last_pee:%H:%M} | "
+              f"경과: {elapsed.seconds//3600}h{(elapsed.seconds%3600)//60}m | "
+              f"목표: {interval_h}h | 남은: {'초과' if remaining.total_seconds()<0 else str(timedelta(seconds=int(remaining.total_seconds())))}")
 
-    if elapsed < interval_td:
-        return                          # 아직 시간 안 됨
+        if remaining.total_seconds() <= 0:
+            # 이미 이 소변 기록에 대해 알림 보냈으면 스킵
+            if notified_at.get(username) == last_pee:
+                continue
 
-    if _last_alerted.get(username) == raw_key:
-        return                          # 이미 이 이벤트로 알림 보냄
+            over_min = int(abs(remaining.total_seconds()) / 60)
+            over_h   = over_min // 60
+            over_m   = over_min % 60
+            pee_str  = last_pee.strftime("%H:%M")
+            interval_str = f"{interval_h:.1f}시간"
 
-    # ── 알림 발송 ──
-    over_sec = (elapsed - interval_td).total_seconds()
-    over_h   = int(over_sec // 3600)
-    over_m   = int((over_sec % 3600) // 60)
-    time_str = f"{over_h}시간 {over_m}분" if over_h > 0 else f"{over_m}분"
-
-    try:
-        profile  = firebase_get(f"users/{username}/profile") or {}
-        pet_name = profile.get("pet_name", "강아지")
-    except Exception:
-        pet_name = "강아지"
-
-    msg = (
-        f"🚨 <b>[Smart Pet Care] {pet_name} 소변 알람!</b>\n\n"
-        f"⏰ 마지막 소변: <b>{last_pee_dt:%H:%M}</b>\n"
-        f"📏 설정 간격: <b>{interval_h:.1f}시간</b>\n"
-        f"🔴 초과 시간: <b>{time_str}</b>\n\n"
-        f"💧 지금 바로 확인해 주세요!"
-    )
-    send_telegram(tg_token, tg_chat_id, msg)
-    _last_alerted[username] = raw_key
-
-    # 알림 기록을 Firebase 로그에 남김
-    try:
-        alert_ts  = now.strftime("%Y-%m-%d %H:%M:%S_%f")
-        alert_act = f"📱 알림 발송 (소변 후 {time_str} 초과)"
-        requests.patch(f"{FIREBASE_URL}users/{username}/logs.json",
-                       json={alert_ts: alert_act}, timeout=5)
-    except Exception:
-        pass
-
+            msg = (
+                f"🐾 <b>{username}님 반려견 소변 알림</b>\n\n"
+                f"⏰ 마지막 소변: <b>{pee_str}</b>\n"
+                f"📏 설정 간격: <b>{interval_str}</b>\n"
+                f"🚨 초과 시간: <b>{over_h}시간 {over_m}분</b>\n\n"
+                f"💧 지금 바로 소변을 볼 수 있도록 확인해 주세요!"
+            )
+            send_telegram(msg)
+            notified_at[username] = last_pee
 
 def main():
-    print("=" * 55)
-    print("🐾 Smart Pet Care — 소변 알림 모니터 시작")
-    print(f"   확인 주기 : {CHECK_EVERY_SEC}초")
-    print(f"   시작 시각 : {now_kst():%Y-%m-%d %H:%M:%S} KST")
-    print("=" * 55)
+    print("=" * 50)
+    print("🐾 소변 알림 모니터 시작")
+    print(f"   확인 주기: {CHECK_INTERVAL_SEC}초")
+    print(f"   시작 시각: {now_kst():%Y-%m-%d %H:%M:%S}")
+    print("=" * 50)
 
     while True:
         try:
-            users = get_all_users()
-            for u in users:
-                check_user(u)
+            check_all_users()
         except Exception as e:
             print(f"[{now_kst():%H:%M:%S}] ❌ 오류: {e}")
-        time.sleep(CHECK_EVERY_SEC)
-
+        time.sleep(CHECK_INTERVAL_SEC)
 
 if __name__ == "__main__":
     main()

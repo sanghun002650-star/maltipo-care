@@ -10,31 +10,99 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.9.0 (활동 로그 최신순 + 전체 기록 탭 추가)"
+APP_VERSION = "v15.0.0 (Firebase Auth 보안 업그레이드)"
 UPDATE_DATE = "2026-04-25"
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
-FIREBASE_URL = "https://petcare-test-c28cd-default-rtdb.asia-southeast1.firebasedatabase.app/" 
+FIREBASE_URL = "https://petcare-test-c28cd-default-rtdb.asia-southeast1.firebasedatabase.app/"
+FIREBASE_API_KEY = "AIzaSyAxFUlUWjItt7c1ZNu26azhZ043rMWW4UE"
+_AUTH_BASE = "https://identitytoolkit.googleapis.com/v1/accounts"
+_TOKEN_REFRESH_URL = f"https://securetoken.googleapis.com/v1/token?key={FIREBASE_API_KEY}"
+
+# ── Firebase Auth 함수 ──
+def _auth_post(endpoint: str, payload: dict) -> dict:
+    try:
+        res = requests.post(f"{_AUTH_BASE}:{endpoint}?key={FIREBASE_API_KEY}", json=payload, timeout=10)
+        return res.json()
+    except Exception as e:
+        return {"error": {"message": str(e)}}
+
+def auth_signup(username: str, password: str) -> dict:
+    return _auth_post("signUp", {"email": f"{username}@maltipo.care", "password": password, "returnSecureToken": True})
+
+def auth_login(username: str, password: str) -> dict:
+    return _auth_post("signInWithPassword", {"email": f"{username}@maltipo.care", "password": password, "returnSecureToken": True})
+
+def _do_token_refresh(refresh_token: str) -> dict:
+    try:
+        res = requests.post(_TOKEN_REFRESH_URL, json={"grant_type": "refresh_token", "refresh_token": refresh_token}, timeout=10)
+        return res.json()
+    except:
+        return {}
+
+@st.cache_resource
+def _auth_cache(user_id: str) -> dict:
+    """세션 간 공유 인증 캐시 (백그라운드 스레드와 공유)"""
+    return {"id_token": "", "refresh_token": "", "token_time": 0.0}
+
+def get_id_token() -> str:
+    """유효한 idToken 반환 — 58분 후 자동 갱신"""
+    token = st.session_state.get('id_token', '')
+    if not token:
+        return ''
+    if time.time() - st.session_state.get('token_time', 0) > 3500:
+        data = _do_token_refresh(st.session_state.get('refresh_token', ''))
+        new_token = data.get('id_token', '')
+        if new_token:
+            st.session_state.id_token = new_token
+            st.session_state.refresh_token = data.get('refresh_token', st.session_state.refresh_token)
+            st.session_state.token_time = time.time()
+            uid = st.session_state.get('username', '')
+            if uid:
+                c = _auth_cache(uid)
+                c.update({"id_token": new_token, "refresh_token": st.session_state.refresh_token, "token_time": time.time()})
+            return new_token
+    return token
+
+def fb_url(path: str) -> str:
+    """인증 토큰이 포함된 Firebase REST URL"""
+    token = get_id_token()
+    base = f"{FIREBASE_URL}{path}.json"
+    return f"{base}?auth={token}" if token else base
 
 st.set_page_config(page_title="🐾 관제 센터", layout="centered", page_icon="🐾", initial_sidebar_state="collapsed") 
 
 # --- 쿠키 매니저 ---
-cookie_manager = stx.CookieManager(key="pet_cookie_manager_v14")
+cookie_manager = stx.CookieManager(key="pet_cookie_manager_v15")
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'username' not in st.session_state: st.session_state.username = ""
-if 'force_logout' not in st.session_state: st.session_state.force_logout = False 
+if 'force_logout' not in st.session_state: st.session_state.force_logout = False
+if 'id_token' not in st.session_state: st.session_state.id_token = ""
+if 'refresh_token' not in st.session_state: st.session_state.refresh_token = ""
+if 'token_time' not in st.session_state: st.session_state.token_time = 0.0
 
 # ==========================================
 # 🚪 로그인 화면
 # ==========================================
 saved_user = cookie_manager.get(cookie="saved_username")
-if saved_user and not st.session_state.logged_in and not st.session_state.force_logout:
-    for key in ['pet_logs', 'pet_ledger', 'profile', 'settings']:
-        st.session_state.pop(key, None)
-    st.session_state.logged_in = True
-    st.session_state.username = saved_user
-    st.rerun()
+saved_rt   = cookie_manager.get(cookie="saved_rt")
+
+# 쿠키 기반 자동 로그인 (refresh_token으로 새 idToken 취득)
+if saved_user and saved_rt and not st.session_state.logged_in and not st.session_state.force_logout:
+    data = _do_token_refresh(saved_rt)
+    new_token = data.get('id_token', '')
+    if new_token:
+        for key in ['pet_logs', 'pet_ledger', 'profile', 'settings']:
+            st.session_state.pop(key, None)
+        st.session_state.logged_in = True
+        st.session_state.username = saved_user
+        st.session_state.id_token = new_token
+        st.session_state.refresh_token = data.get('refresh_token', saved_rt)
+        st.session_state.token_time = time.time()
+        c = _auth_cache(saved_user)
+        c.update({"id_token": new_token, "refresh_token": st.session_state.refresh_token, "token_time": time.time()})
+        st.rerun()
 
 if not st.session_state.logged_in:
     st.markdown("""
@@ -52,23 +120,56 @@ if not st.session_state.logged_in:
         auto_login = st.checkbox("로그인 유지 (6개월)", value=True)
         if st.button("접속하기 🚀", use_container_width=True, type="primary"):
             if login_id and login_pw:
-                try:
-                    res = requests.get(f"{FIREBASE_URL}users/{login_id}/password.json", timeout=5)
-                    if res.status_code == 200 and res.json() == login_pw:
-                        if auto_login:
-                            cookie_manager.set("saved_username", login_id, expires_at=datetime.now() + timedelta(days=180))
-                        else:
-                            cookie_manager.delete("saved_username")
-                        for key in ['pet_logs', 'pet_ledger', 'profile', 'settings']:
-                            st.session_state.pop(key, None)
-                        st.session_state.force_logout = False
-                        st.session_state.logged_in = True
-                        st.session_state.username = login_id
-                        time.sleep(0.3); st.rerun()
+                result = auth_login(login_id, login_pw)
+                id_tok = result.get("idToken", "")
+                refresh_tok = result.get("refreshToken", "")
+
+                # 마이그레이션: 기존 DB 비밀번호 계정 → Firebase Auth로 이전
+                # Firebase Auth 최소 6자리 요건: 짧으면 패딩 처리
+                def _fb_pw(pw: str) -> str:
+                    return pw if len(pw) >= 6 else pw + ("_" * (6 - len(pw)))
+
+                if not id_tok:
+                    err = result.get("error", {}).get("message", "")
+                    if err in ("EMAIL_NOT_FOUND", "INVALID_LOGIN_CREDENTIALS", "INVALID_PASSWORD", "WEAK_PASSWORD"):
+                        try:
+                            old_res = requests.get(f"{FIREBASE_URL}users/{login_id}/password.json", timeout=5)
+                            if old_res.status_code == 200 and old_res.json() == login_pw:
+                                signup_r = auth_signup(login_id, _fb_pw(login_pw))
+                                id_tok = signup_r.get("idToken", "")
+                                refresh_tok = signup_r.get("refreshToken", "")
+                                if id_tok:
+                                    requests.delete(f"{FIREBASE_URL}users/{login_id}/password.json", timeout=5)
+                        except Exception:
+                            pass
+
+                # 이미 마이그레이션된 계정: 패딩 비밀번호로 재시도
+                if not id_tok and len(login_pw) < 6:
+                    retry = auth_login(login_id, _fb_pw(login_pw))
+                    id_tok = retry.get("idToken", "")
+                    refresh_tok = retry.get("refreshToken", "")
+
+                if id_tok:
+                    if auto_login:
+                        cookie_manager.set("saved_username", login_id, expires_at=datetime.now() + timedelta(days=180))
+                        cookie_manager.set("saved_rt", refresh_tok, expires_at=datetime.now() + timedelta(days=180))
                     else:
-                        st.error("❌ 아이디 또는 비밀번호가 틀렸습니다.")
-                except requests.exceptions.RequestException:
-                    st.error("⚠️ 네트워크 오류. 인터넷 연결을 확인해주세요.")
+                        cookie_manager.delete("saved_username")
+                        cookie_manager.delete("saved_rt")
+                    for key in ['pet_logs', 'pet_ledger', 'profile', 'settings']:
+                        st.session_state.pop(key, None)
+                    st.session_state.force_logout = False
+                    st.session_state.logged_in = True
+                    st.session_state.username = login_id
+                    st.session_state.id_token = id_tok
+                    st.session_state.refresh_token = refresh_tok
+                    st.session_state.token_time = time.time()
+                    c = _auth_cache(login_id)
+                    c.update({"id_token": id_tok, "refresh_token": refresh_tok, "token_time": time.time()})
+                    time.sleep(0.3); st.rerun()
+                else:
+                    err_code = result.get("error", {}).get("message", "UNKNOWN")
+                    st.error(f"❌ 로그인 실패 — Firebase 오류: `{err_code}`")
             else:
                 st.warning("아이디와 비밀번호를 모두 입력하세요.")
                 
@@ -77,24 +178,26 @@ if not st.session_state.logged_in:
         reg_pw = st.text_input("비밀번호", type="password", key="r_pw", placeholder="비밀번호")
         if st.button("계정 생성 💾", use_container_width=True):
             if reg_id and reg_pw:
-                try:
-                    res = requests.get(f"{FIREBASE_URL}users/{reg_id}.json", timeout=5)
-                    if res.status_code == 200 and res.json() is not None:
+                result = auth_signup(reg_id, reg_pw)
+                new_tok = result.get("idToken", "")
+                if new_tok:
+                    auth_q = f"?auth={new_tok}"
+                    default_prof = {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
+                    default_settings = {
+                        "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0,
+                        "sleep_start": "22:00", "sleep_end": "05:00",
+                        "tg_enabled": True, "tg_token": "8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0", "tg_chat_id": "8124116628",
+                        "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
+                    }
+                    requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json{auth_q}", json=default_prof, timeout=5)
+                    requests.put(f"{FIREBASE_URL}users/{reg_id}/settings.json{auth_q}", json=default_settings, timeout=5)
+                    st.success("✅ 계정 생성 완료! 로그인 탭에서 접속하세요.")
+                else:
+                    err = result.get("error", {}).get("message", "")
+                    if err == "EMAIL_EXISTS":
                         st.error("❌ 이미 존재하는 아이디입니다.")
                     else:
-                        requests.put(f"{FIREBASE_URL}users/{reg_id}/password.json", json=reg_pw, timeout=5)
-                        default_prof = {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
-                        requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json", json=default_prof, timeout=5)
-                        default_settings = {
-                            "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0,
-                            "sleep_start": "22:00", "sleep_end": "05:00",
-                            "tg_enabled": True, "tg_token": "8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0", "tg_chat_id": "8124116628",
-                            "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
-                        }
-                        requests.put(f"{FIREBASE_URL}users/{reg_id}/settings.json", json=default_settings, timeout=5)
-                        st.success("✅ 계정 생성 완료! 로그인 탭에서 접속하세요.")
-                except requests.exceptions.RequestException:
-                    st.error("⚠️ 네트워크 오류.")
+                        st.error(f"❌ 계정 생성 실패: {err}")
             else:
                 st.warning("모든 항목을 입력하세요.")
     st.stop()
@@ -110,7 +213,7 @@ def _unique_ts(base_time=None):
 
 def load_profile():
     try:
-        res = requests.get(f"{FIREBASE_URL}users/{username}/profile.json", timeout=5)
+        res = requests.get(fb_url(f"users/{username}/profile"), timeout=5)
         if res.status_code == 200 and res.json(): return res.json()
     except: pass
     return {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
@@ -123,7 +226,7 @@ def load_settings():
         "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
     }
     try:
-        res = requests.get(f"{FIREBASE_URL}users/{username}/settings.json", timeout=5)
+        res = requests.get(fb_url(f"users/{username}/settings"), timeout=5)
         if res.status_code == 200 and res.json():
             loaded = res.json()
             for k in default_settings:
@@ -135,17 +238,17 @@ def load_settings():
     return default_settings
 
 def save_profile(profile):
-    try: requests.put(f"{FIREBASE_URL}users/{username}/profile.json", json=profile, timeout=5)
+    try: requests.put(fb_url(f"users/{username}/profile"), json=profile, timeout=5)
     except: pass
 
 def save_settings(settings_data):
-    try: requests.put(f"{FIREBASE_URL}users/{username}/settings.json", json=settings_data, timeout=5)
+    try: requests.put(fb_url(f"users/{username}/settings"), json=settings_data, timeout=5)
     except: pass
 
 def load_data():
     for attempt in range(3):
         try:
-            res = requests.get(f"{FIREBASE_URL}users/{username}/logs.json", timeout=8)
+            res = requests.get(fb_url(f"users/{username}/logs"), timeout=8)
             if res.status_code == 200:
                 raw = res.json()
                 if raw:
@@ -166,7 +269,7 @@ def add_record(act, c_time=None):
     )
     # Firebase 동기화 (실패해도 UI는 유지)
     try:
-        res = requests.patch(f"{FIREBASE_URL}users/{username}/logs.json", json={t: act}, timeout=8)
+        res = requests.patch(fb_url(f"users/{username}/logs"), json={t: act}, timeout=8)
         if not res.ok:
             st.warning(f"⚠️ 클라우드 동기화 실패 (HTTP {res.status_code}) — 앱은 정상 작동하나 재시작 시 기록이 유실될 수 있습니다. Firebase 콘솔에서 데이터베이스 규칙을 확인해 주세요.")
     except Exception as e:
@@ -175,7 +278,7 @@ def add_record(act, c_time=None):
 
 def load_ledger():
     try:
-        res = requests.get(f"{FIREBASE_URL}users/{username}/ledger.json", timeout=5)
+        res = requests.get(fb_url(f"users/{username}/ledger"), timeout=5)
         if res.status_code == 200 and res.json():
             return pd.DataFrame([{"키": k, "날짜": v.get("date",""), "카테고리": v.get("category",""), "금액": int(v.get("amount", 0)), "메모": v.get("memo","")} for k, v in res.json().items()]).sort_values("날짜").reset_index(drop=True)
     except: pass
@@ -183,13 +286,13 @@ def load_ledger():
 
 def add_ledger_entry(date_str, category, amount, memo):
     ts = _unique_ts()
-    try: requests.patch(f"{FIREBASE_URL}users/{username}/ledger.json", json={ts: {"date": date_str, "category": category, "amount": amount, "memo": memo}}, timeout=5)
+    try: requests.patch(fb_url(f"users/{username}/ledger"), json={ts: {"date": date_str, "category": category, "amount": amount, "memo": memo}}, timeout=5)
     except: return
     st.session_state.pet_ledger = pd.concat([st.session_state.pet_ledger, pd.DataFrame([{"키": ts, "날짜": date_str, "카테고리": category, "금액": amount, "메모": memo}])], ignore_index=True)
     st.rerun()
 
 def delete_ledger_entry(key):
-    try: requests.delete(f"{FIREBASE_URL}users/{username}/ledger/{key}.json", timeout=5); st.session_state.pet_ledger = st.session_state.pet_ledger[st.session_state.pet_ledger["키"] != key].reset_index(drop=True); st.rerun()
+    try: requests.delete(fb_url(f"users/{username}/ledger/{key}"), timeout=5); st.session_state.pet_ledger = st.session_state.pet_ledger[st.session_state.pet_ledger["키"] != key].reset_index(drop=True); st.rerun()
     except: pass
 
 if 'profile' not in st.session_state: st.session_state.profile = load_profile()
@@ -216,37 +319,47 @@ def is_sleeping_time(now_dt, start_str, end_str):
 
 @st.cache_resource
 def start_bg_monitor(user_id):
+    def _bg_url(path: str) -> str:
+        c = _auth_cache(user_id)
+        token = c.get("id_token", "")
+        if token and time.time() - c.get("token_time", 0) > 3500:
+            data = _do_token_refresh(c.get("refresh_token", ""))
+            new_tok = data.get("id_token", "")
+            if new_tok:
+                c.update({"id_token": new_tok, "refresh_token": data.get("refresh_token", c["refresh_token"]), "token_time": time.time()})
+                token = new_tok
+        base = f"{FIREBASE_URL}{path}.json"
+        return f"{base}?auth={token}" if token else base
+
     def job():
-        last_alerted_event_id = ""  # [패치 2] 중복 발송 원천 차단용 식별자
+        last_alerted_event_id = ""
         while True:
             try:
                 time.sleep(30)
-                s_res = requests.get(f"{FIREBASE_URL}users/{user_id}/settings.json", timeout=5)
+                s_res = requests.get(_bg_url(f"users/{user_id}/settings"), timeout=5)
                 if s_res.status_code != 200 or not s_res.json(): continue
                 settings = s_res.json()
-                
-                if not settings.get("tg_enabled") or not settings.get("tg_token") or not settings.get("tg_chat_id"): 
+
+                if not settings.get("tg_enabled") or not settings.get("tg_token") or not settings.get("tg_chat_id"):
                     continue
-                
+
                 now_tz = datetime.now(timezone(timedelta(hours=9)))
-                
-                # [패치 3] 취침 시간(DND) 엄격 적용: 조건 만족 시 아래 모든 로직 무시 (Skip)
+
                 if is_sleeping_time(now_tz, settings.get("sleep_start", "22:00"), settings.get("sleep_end", "05:00")):
                     continue
-                
-                # [패치 1] 알람 간격 시간(Hour) 단위 정확한 초(Seconds) 환산
+
                 interval_h = float(settings.get("pee_interval", 5.0))
-                interval_sec = interval_h * 3600.0 
-                
-                l_res = requests.get(f"{FIREBASE_URL}users/{user_id}/logs.json", timeout=5)
+                interval_sec = interval_h * 3600.0
+
+                l_res = requests.get(_bg_url(f"users/{user_id}/logs"), timeout=5)
                 if l_res.status_code != 200 or not l_res.json(): continue
                 logs = l_res.json()
-                
+
                 p_ts, p_raw_key = "", ""
                 for k in sorted(logs.keys(), reverse=True):
                     act = str(logs[k])
                     if "소변" in act and not any(x in act for x in ["차감", "리셋", "끄기", "알림 발송"]):
-                        p_raw_key = k # 중복 방지를 위한 원본 이벤트 키값 할당
+                        p_raw_key = k
                         if '(수정)' in act and '[' in act and ']' in act:
                             try:
                                 ext_time = act.split('[')[1].split(']')[0]
@@ -255,37 +368,32 @@ def start_bg_monitor(user_id):
                             except: p_ts = k.split('_')[0]
                         else: p_ts = k.split('_')[0]
                         break
-                
-                # [패치 2 적용] 발송 기록 아이디가 다를 때만 1회 발송 수행
+
                 if p_ts and p_raw_key != last_alerted_event_id:
-                    # [버그픽스] timezone-aware(now_tz) vs naive(strptime) 뺄셈 오류 수정
                     parsed_dt = datetime.strptime(p_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=9)))
                     diff_sec = (now_tz - parsed_dt).total_seconds()
 
                     if diff_sec >= interval_sec:
                         h = int(diff_sec // 3600)
                         m = int((diff_sec % 3600) // 60)
-                        # [버그픽스] pet_name은 profile에 저장됨 (settings가 아님)
                         try:
-                            p_res = requests.get(f"{FIREBASE_URL}users/{user_id}/profile.json", timeout=5)
+                            p_res = requests.get(_bg_url(f"users/{user_id}/profile"), timeout=5)
                             pet_name = p_res.json().get("pet_name", "강아지") if p_res.status_code == 200 and p_res.json() else "강아지"
                         except Exception:
                             pet_name = "강아지"
                         time_str = f"{h}시간 {m}분" if h > 0 else f"{m}분"
                         msg = f"🚨 [Smart Pet Care] {pet_name} 소변 알람!\n\n마지막 소변 후 {time_str}이 경과했습니다.\n아이의 상태를 확인해 주세요!"
-                        
+
                         send_tg_msg(settings["tg_token"], settings["tg_chat_id"], msg)
-                        
-                        # 중복 발송 방지 플래그 락(Lock) 체결
-                        last_alerted_event_id = p_raw_key 
-                        
+                        last_alerted_event_id = p_raw_key
+
                         try:
                             alert_ts = now_tz.strftime("%Y-%m-%d %H:%M:%S_%f")
                             alert_act = f"📱 알림 발송 (소변 후 {time_str} 초과)"
-                            requests.patch(f"{FIREBASE_URL}users/{user_id}/logs.json", json={alert_ts: alert_act}, timeout=5)
+                            requests.patch(_bg_url(f"users/{user_id}/logs"), json={alert_ts: alert_act}, timeout=5)
                         except: pass
 
-            except Exception: pass 
+            except Exception: pass
     t = threading.Thread(target=job, daemon=True)
     t.start()
     return t
@@ -349,8 +457,12 @@ with st.sidebar:
     
     if st.button("🔒 로그아웃", use_container_width=True):
         cookie_manager.delete("saved_username")
+        cookie_manager.delete("saved_rt")
         for key in ['pet_logs', 'pet_ledger', 'profile', 'settings']:
             st.session_state.pop(key, None)
+        st.session_state.id_token = ""
+        st.session_state.refresh_token = ""
+        st.session_state.token_time = 0.0
         st.session_state.force_logout = True
         st.session_state.logged_in = False
         time.sleep(0.3); st.rerun()
@@ -867,7 +979,7 @@ if not target_df.empty:
     last_key = str(target_df.iloc[-1]['시간'])
     if st.button(f"❌ 직전 취소: [{last_t}] {last_act}", use_container_width=True):
         try:
-            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{last_key}.json", timeout=5).raise_for_status()
+            requests.delete(fb_url(f"users/{username}/logs/{last_key}"), timeout=5).raise_for_status()
             st.session_state.pet_logs = st.session_state.pet_logs[
                 st.session_state.pet_logs['시간'].astype(str) != last_key
             ].reset_index(drop=True)

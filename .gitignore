@@ -1,5 +1,1 @@
 __pycache__/
-*.pyc
-.env
-auto_data/
-manual_feedback/
