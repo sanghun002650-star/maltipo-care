@@ -10,7 +10,7 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.9.0 (식사/음수량 타이머 통합)"
+APP_VERSION = "v14.9.1 (SyntaxError 핫픽스)"
 UPDATE_DATE = "2026-04-12"
 
 KST = timezone(timedelta(hours=9))
@@ -207,7 +207,12 @@ def start_bg_monitor(user_id):
                     elif "식사 알림 발송" in act and not "차감" in act:
                         if not m_a_dt: m_a_dt = extract_dt(k, act)
 
-                pet_name = requests.get(f"{FIREBASE_URL}users/{user_id}/profile.json", timeout=5).json().get("pet_name", "강아지") rescue "강아지"
+                # SyntaxError 핫픽스 (try-except 구문 사용)
+                try:
+                    p_res = requests.get(f"{FIREBASE_URL}users/{user_id}/profile.json", timeout=5)
+                    pet_name = p_res.json().get("pet_name", "강아지") if p_res.status_code == 200 and p_res.json() else "강아지"
+                except Exception:
+                    pet_name = "강아지"
 
                 # 소변 알람
                 if p_dt and p_dt >= anchor_dt:
@@ -449,7 +454,7 @@ def render_timer():
                 const diff = now - new Date(d_iso); if(diff>=0) {{
                     const d_h = Math.floor(diff/3600000), d_m = Math.floor((diff%3600000)/60000);
                     d_el.innerText = String(d_h).padStart(2,'0') + ":" + String(d_m).padStart(2,'0');
-                    d_circ.setAttribute('stroke-dasharray', Math.min((diff/D_MAX_MS)*100, 100) + ', 100');
+                    d_circ.setAttribute('stroke-dasharray', Math.min((diff/43200000)*100, 100) + ', 100');
                 }}
             }}
         }}
