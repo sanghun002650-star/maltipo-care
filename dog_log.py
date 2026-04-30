@@ -10,7 +10,7 @@ import threading
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.9.1 (SyntaxError 핫픽스)"
+APP_VERSION = "v14.9.2 (암호화 롤백 & v14.9.1 기능 완전 보존)"
 UPDATE_DATE = "2026-04-12"
 
 KST = timezone(timedelta(hours=9))
@@ -26,7 +26,7 @@ if 'username' not in st.session_state: st.session_state.username = ""
 if 'force_logout' not in st.session_state: st.session_state.force_logout = False 
 
 # ==========================================
-# 🚪 로그인 화면
+# 🚪 로그인 화면 (암호화 제거 / 평문 대조 롤백)
 # ==========================================
 saved_user = cookie_manager.get(cookie="saved_username")
 if saved_user and not st.session_state.logged_in and not st.session_state.force_logout:
@@ -49,6 +49,7 @@ if not st.session_state.logged_in:
         login_pw = st.text_input("비밀번호", type="password", key="l_pw", placeholder="비밀번호 입력")
         if st.button("접속하기 🚀", use_container_width=True, type="primary"):
             try:
+                # [복구 포인트 1] 평문 비밀번호 대조
                 res = requests.get(f"{FIREBASE_URL}users/{login_id}/password.json", timeout=5)
                 if res.status_code == 200 and res.json() == login_pw:
                     cookie_manager.set("saved_username", login_id, expires_at=datetime.now() + timedelta(days=180))
@@ -56,12 +57,29 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.username = login_id
                     st.rerun()
-                else: st.error("❌ 비밀번호 오류")
-            except: st.error("⚠️ 네트워크 오류")
+                else: st.error("❌ 아이디 또는 비밀번호가 틀렸습니다.")
+            except: st.error("⚠️ 네트워크 오류. 인터넷 연결을 확인해주세요.")
+                
+    with tab2:
+        reg_id = st.text_input("아이디", key="r_id", placeholder="사용할 아이디")
+        reg_pw = st.text_input("비밀번호", type="password", key="r_pw", placeholder="비밀번호")
+        if st.button("계정 생성 💾", use_container_width=True):
+            if reg_id and reg_pw:
+                try:
+                    res = requests.get(f"{FIREBASE_URL}users/{reg_id}.json", timeout=5)
+                    if res.status_code == 200 and res.json() is not None: st.error("❌ 이미 존재하는 아이디입니다.")
+                    else:
+                        # [복구 포인트 2] 비밀번호 평문 저장 (암호화 X)
+                        requests.put(f"{FIREBASE_URL}users/{reg_id}/password.json", json=reg_pw, timeout=5)
+                        requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json", json={"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}, timeout=5)
+                        requests.put(f"{FIREBASE_URL}users/{reg_id}/settings.json", json={"btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0, "meal_interval": 8.0, "sleep_start": "22:00", "sleep_end": "05:00", "tg_enabled": True, "tg_token": "8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0", "tg_chat_id": "8124116628", "order": {"타이머":1, "누적데이터":2, "배변기록":3, "식사기록":4, "산책기록":5, "건강미용":6, "수동조절":7, "기록차감":8, "활동로그":9, "주간통계":10, "가계부":11}}, timeout=5)
+                        st.success("✅ 계정 생성 완료! 로그인 탭에서 접속하세요.")
+                except requests.exceptions.RequestException: st.error("⚠️ 네트워크 오류.")
+            else: st.warning("모든 항목을 입력하세요.")
     st.stop()
 
 # ==========================================
-# ☁️ 클라우드 엔진 & 파서 로직
+# ☁️ 클라우드 엔진 & 핵심 무결성 파서 로직
 # ==========================================
 username = st.session_state.username
 
@@ -139,7 +157,9 @@ if 'settings' not in st.session_state: st.session_state.settings = load_settings
 if 'pet_logs' not in st.session_state: st.session_state.pet_logs = load_data()
 if 'pet_ledger' not in st.session_state: st.session_state.pet_ledger = load_ledger()
 
-# --- 파서 및 Anchor Time 알고리즘 ---
+# ----------------------------------------------------
+# 활동 이벤트 파서 및 Anchor Time 알고리즘 (v14.9.1 보존)
+# ----------------------------------------------------
 def extract_dt(log_key, log_act):
     try:
         if '(수정)' in log_act and '[' in log_act and ']' in log_act:
@@ -196,25 +216,24 @@ def start_bg_monitor(user_id):
                 
                 for k in sorted(logs.keys(), reverse=True):
                     act = str(logs[k])
-                    # 소변
+                    # 소변 파싱
                     if "소변" in act and not any(x in act for x in ["차감", "리셋", "끄기", "알림 발송"]):
                         if not p_dt: p_dt = extract_dt(k, act)
                     elif "소변 알림 발송" in act and not "차감" in act:
                         if not p_a_dt: p_a_dt = extract_dt(k, act)
-                    # 식사
+                    # 식사 파싱
                     if ("사료" in act or "식사" in act) and not any(x in act for x in ["차감", "리셋", "알림 발송", "간식"]):
                         if not m_dt: m_dt = extract_dt(k, act)
                     elif "식사 알림 발송" in act and not "차감" in act:
                         if not m_a_dt: m_a_dt = extract_dt(k, act)
 
-                # SyntaxError 핫픽스 (try-except 구문 사용)
                 try:
                     p_res = requests.get(f"{FIREBASE_URL}users/{user_id}/profile.json", timeout=5)
                     pet_name = p_res.json().get("pet_name", "강아지") if p_res.status_code == 200 and p_res.json() else "강아지"
                 except Exception:
                     pet_name = "강아지"
 
-                # 소변 알람
+                # 소변 알람 트리거
                 if p_dt and p_dt >= anchor_dt:
                     if not p_a_dt or p_dt > p_a_dt:
                         diff_sec = (now_tz - p_dt).total_seconds()
@@ -224,7 +243,7 @@ def start_bg_monitor(user_id):
                             requests.post(f"https://api.telegram.org/bot{sett['tg_token']}/sendMessage", data={"chat_id": sett['tg_chat_id'], "text": msg}, timeout=10)
                             requests.patch(f"{FIREBASE_URL}users/{user_id}/logs.json", json={now_tz.strftime("%Y-%m-%d %H:%M:%S_%f"): f"📱 소변 알림 발송 ({h}H {m}M 초과)"}, timeout=5)
 
-                # 식사 알람
+                # 식사 알람 트리거
                 if m_dt and m_dt >= anchor_dt:
                     if not m_a_dt or m_dt > m_a_dt:
                         diff_sec = (now_tz - m_dt).total_seconds()
@@ -259,7 +278,7 @@ div.stButton > button:active {{ transform: scale(0.97) !important; background-co
 """, unsafe_allow_html=True)
 
 # ==========================================
-# ⚙️ 사이드바 (식사 설정 추가)
+# ⚙️ 사이드바
 # ==========================================
 with st.sidebar:
     st.markdown(f"### ⚙️ {username}님")
@@ -293,7 +312,7 @@ with st.sidebar:
             st.session_state.settings.update({'order': new_order}); save_settings(st.session_state.settings); st.rerun() 
 
 # ==========================================
-# 📊 UI 데이터 파싱
+# 📊 UI 데이터 파싱 (v14.9.1 보존)
 # ==========================================
 df = st.session_state.pet_logs
 
@@ -305,12 +324,9 @@ def get_latest_event(kw, exclude_kws=['차감','리셋','끄기']):
             return extract_dt(t, act), act
     return None, ""
 
-# 소변 관제
 p_dt, _ = get_latest_event("소변", ['차감','리셋','끄기','알림 발송'])
 p_a_dt, _ = get_latest_event("소변 알림 발송")
-# 대변 관제
 d_dt, _ = get_latest_event("대변")
-# 식사 관제
 m_dt, _ = get_latest_event("사료", ['차감','리셋','간식'])
 if not m_dt: m_dt, _ = get_latest_event("식사", ['차감','리셋','간식'])
 m_a_dt, _ = get_latest_event("식사 알림 발송")
@@ -347,13 +363,12 @@ s_start = st.session_state.settings.get('sleep_start', '22:00')
 s_end = st.session_state.settings.get('sleep_end', '05:00')
 
 # ==========================================
-# 🧱 UI 모듈 렌더링
+# 🧱 UI 모듈 렌더링 (v14.9.1 보존)
 # ==========================================
 def render_timer():
     intv_h = float(st.session_state.settings.get("pee_interval", 5.0))
     m_intv_h = float(st.session_state.settings.get("meal_interval", 8.0))
     
-    # 소변/대변 3:2 레이아웃
     components.html(f"""
     <div style="display:flex; flex-direction:row; gap:15px; font-family:'Malgun Gothic', sans-serif; width:100%; margin-bottom:15px;">
         <div id="p_card" style="flex:3; background:#ffffff; border-radius:24px; padding:15px 10px; box-shadow:0 8px 24px rgba(0,0,0,0.06); display:flex; flex-direction:column;">
@@ -454,7 +469,7 @@ def render_timer():
                 const diff = now - new Date(d_iso); if(diff>=0) {{
                     const d_h = Math.floor(diff/3600000), d_m = Math.floor((diff%3600000)/60000);
                     d_el.innerText = String(d_h).padStart(2,'0') + ":" + String(d_m).padStart(2,'0');
-                    d_circ.setAttribute('stroke-dasharray', Math.min((diff/43200000)*100, 100) + ', 100');
+                    d_circ.setAttribute('stroke-dasharray', Math.min((diff/D_MAX_MS)*100, 100) + ', 100');
                 }}
             }}
         }}
