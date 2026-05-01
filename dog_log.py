@@ -6,16 +6,21 @@ import requests
 import extra_streamlit_components as stx
 import time
 import threading
+import hashlib
 
 # ==========================================
 # 0. 기본 설정
 # ==========================================
-APP_VERSION = "v14.5.0 (타이머JS/알람timezone/pet_name 버그픽스)"
-UPDATE_DATE = "2026-04-10"
+APP_VERSION = "v14.6.0 (보안: 마스터키 및 비밀번호 해싱 적용)"
+UPDATE_DATE = "2026-05-01"
 
 KST = timezone(timedelta(hours=9))
 def now_kst(): return datetime.now(KST)
 FIREBASE_URL = "https://petcare-test-c28cd-default-rtdb.asia-southeast1.firebasedatabase.app/" 
+FIREBASE_SECRET = "●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●"
+
+def hash_pw(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
 st.set_page_config(page_title="🐾 관제 센터", layout="centered", page_icon="🐾", initial_sidebar_state="collapsed") 
 
@@ -51,8 +56,8 @@ if not st.session_state.logged_in:
         if st.button("접속하기 🚀", use_container_width=True, type="primary"):
             if login_id and login_pw:
                 try:
-                    res = requests.get(f"{FIREBASE_URL}users/{login_id}/password.json", timeout=5)
-                    if res.status_code == 200 and res.json() == login_pw:
+                    res = requests.get(f"{FIREBASE_URL}users/{login_id}/password.json?auth={FIREBASE_SECRET}", timeout=5)
+                    if res.status_code == 200 and res.json() == hash_pw(login_pw):
                         if auto_login:
                             cookie_manager.set("saved_username", login_id, expires_at=datetime.now() + timedelta(days=180))
                         else:
@@ -74,20 +79,20 @@ if not st.session_state.logged_in:
         if st.button("계정 생성 💾", use_container_width=True):
             if reg_id and reg_pw:
                 try:
-                    res = requests.get(f"{FIREBASE_URL}users/{reg_id}.json", timeout=5)
+                    res = requests.get(f"{FIREBASE_URL}users/{reg_id}.json?auth={FIREBASE_SECRET}", timeout=5)
                     if res.status_code == 200 and res.json() is not None:
                         st.error("❌ 이미 존재하는 아이디입니다.")
                     else:
-                        requests.put(f"{FIREBASE_URL}users/{reg_id}/password.json", json=reg_pw, timeout=5)
+                        requests.put(f"{FIREBASE_URL}users/{reg_id}/password.json?auth={FIREBASE_SECRET}", json=hash_pw(reg_pw), timeout=5)
                         default_prof = {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
-                        requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json", json=default_prof, timeout=5)
+                        requests.put(f"{FIREBASE_URL}users/{reg_id}/profile.json?auth={FIREBASE_SECRET}", json=default_prof, timeout=5)
                         default_settings = {
                             "btn_h": 4.2, "hdr_color": "#64748b", "pee_interval": 5.0,
                             "sleep_start": "22:00", "sleep_end": "05:00",
                             "tg_enabled": True, "tg_token": "8560607237:AAH1HTdbxFsWGS8UFoNPAKsfmxr9wd2VNS0", "tg_chat_id": "8124116628",
                             "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
                         }
-                        requests.put(f"{FIREBASE_URL}users/{reg_id}/settings.json", json=default_settings, timeout=5)
+                        requests.put(f"{FIREBASE_URL}users/{reg_id}/settings.json?auth={FIREBASE_SECRET}", json=default_settings, timeout=5)
                         st.success("✅ 계정 생성 완료! 로그인 탭에서 접속하세요.")
                 except requests.exceptions.RequestException:
                     st.error("⚠️ 네트워크 오류.")
@@ -106,7 +111,7 @@ def _unique_ts(base_time=None):
 
 def load_profile():
     try:
-        res = requests.get(f"{FIREBASE_URL}users/{username}/profile.json", timeout=5)
+        res = requests.get(f"{FIREBASE_URL}users/{username}/profile.json?auth={FIREBASE_SECRET}", timeout=5)
         if res.status_code == 200 and res.json(): return res.json()
     except: pass
     return {"pet_name": "강아지", "birth": "", "weight": "", "gender": "수컷", "memo": ""}
@@ -119,7 +124,7 @@ def load_settings():
         "order": {"타이머":1, "누적데이터":2, "배변기록":3, "산책기록":4, "건강미용":5, "수동조절":6, "기록차감":7, "활동로그":8, "주간통계":9, "가계부":10}
     }
     try:
-        res = requests.get(f"{FIREBASE_URL}users/{username}/settings.json", timeout=5)
+        res = requests.get(f"{FIREBASE_URL}users/{username}/settings.json?auth={FIREBASE_SECRET}", timeout=5)
         if res.status_code == 200 and res.json():
             loaded = res.json()
             for k in default_settings:
@@ -131,16 +136,16 @@ def load_settings():
     return default_settings
 
 def save_profile(profile):
-    try: requests.put(f"{FIREBASE_URL}users/{username}/profile.json", json=profile, timeout=5)
+    try: requests.put(f"{FIREBASE_URL}users/{username}/profile.json?auth={FIREBASE_SECRET}", json=profile, timeout=5)
     except: pass
 
 def save_settings(settings_data):
-    try: requests.put(f"{FIREBASE_URL}users/{username}/settings.json", json=settings_data, timeout=5)
+    try: requests.put(f"{FIREBASE_URL}users/{username}/settings.json?auth={FIREBASE_SECRET}", json=settings_data, timeout=5)
     except: pass
 
 def load_data():
     try:
-        res = requests.get(f"{FIREBASE_URL}users/{username}/logs.json", timeout=5)
+        res = requests.get(f"{FIREBASE_URL}users/{username}/logs.json?auth={FIREBASE_SECRET}", timeout=5)
         if res.status_code == 200 and res.json():
             return pd.DataFrame([{"시간": k, "활동": v} for k, v in res.json().items()]).sort_values("시간").reset_index(drop=True)
     except: pass
@@ -148,14 +153,14 @@ def load_data():
 
 def add_record(act, c_time=None):
     t = c_time if c_time else _unique_ts()
-    try: requests.patch(f"{FIREBASE_URL}users/{username}/logs.json", json={t: act}, timeout=5)
+    try: requests.patch(f"{FIREBASE_URL}users/{username}/logs.json?auth={FIREBASE_SECRET}", json={t: act}, timeout=5)
     except: return
     st.session_state.pet_logs = pd.concat([st.session_state.pet_logs, pd.DataFrame([{"시간": t, "활동": act}])], ignore_index=True)
     st.rerun()
 
 def load_ledger():
     try:
-        res = requests.get(f"{FIREBASE_URL}users/{username}/ledger.json", timeout=5)
+        res = requests.get(f"{FIREBASE_URL}users/{username}/ledger.json?auth={FIREBASE_SECRET}", timeout=5)
         if res.status_code == 200 and res.json():
             return pd.DataFrame([{"키": k, "날짜": v.get("date",""), "카테고리": v.get("category",""), "금액": int(v.get("amount", 0)), "메모": v.get("memo","")} for k, v in res.json().items()]).sort_values("날짜").reset_index(drop=True)
     except: pass
@@ -163,13 +168,13 @@ def load_ledger():
 
 def add_ledger_entry(date_str, category, amount, memo):
     ts = _unique_ts()
-    try: requests.patch(f"{FIREBASE_URL}users/{username}/ledger.json", json={ts: {"date": date_str, "category": category, "amount": amount, "memo": memo}}, timeout=5)
+    try: requests.patch(f"{FIREBASE_URL}users/{username}/ledger.json?auth={FIREBASE_SECRET}", json={ts: {"date": date_str, "category": category, "amount": amount, "memo": memo}}, timeout=5)
     except: return
     st.session_state.pet_ledger = pd.concat([st.session_state.pet_ledger, pd.DataFrame([{"키": ts, "날짜": date_str, "카테고리": category, "금액": amount, "메모": memo}])], ignore_index=True)
     st.rerun()
 
 def delete_ledger_entry(key):
-    try: requests.delete(f"{FIREBASE_URL}users/{username}/ledger/{key}.json", timeout=5); st.session_state.pet_ledger = st.session_state.pet_ledger[st.session_state.pet_ledger["키"] != key].reset_index(drop=True); st.rerun()
+    try: requests.delete(f"{FIREBASE_URL}users/{username}/ledger/{key}.json?auth={FIREBASE_SECRET}", timeout=5); st.session_state.pet_ledger = st.session_state.pet_ledger[st.session_state.pet_ledger["키"] != key].reset_index(drop=True); st.rerun()
     except: pass
 
 if 'profile' not in st.session_state: st.session_state.profile = load_profile()
@@ -177,7 +182,7 @@ if 'settings' not in st.session_state: st.session_state.settings = load_settings
 if 'pet_logs' not in st.session_state: st.session_state.pet_logs = load_data()
 if 'pet_ledger' not in st.session_state: st.session_state.pet_ledger = load_ledger()
 
-# 🚀 텔레그램 백그라운드 모니터링 데몬 (패치 완료)
+# 🚀 텔레그램 백그라운드 모니터링 데몬
 def send_tg_msg(token, chat_id, text):
     if not token or not chat_id: return
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -197,11 +202,11 @@ def is_sleeping_time(now_dt, start_str, end_str):
 @st.cache_resource
 def start_bg_monitor(user_id):
     def job():
-        last_alerted_event_id = ""  # [패치 2] 중복 발송 원천 차단용 식별자
+        last_alerted_event_id = "" 
         while True:
             try:
                 time.sleep(30)
-                s_res = requests.get(f"{FIREBASE_URL}users/{user_id}/settings.json", timeout=5)
+                s_res = requests.get(f"{FIREBASE_URL}users/{user_id}/settings.json?auth={FIREBASE_SECRET}", timeout=5)
                 if s_res.status_code != 200 or not s_res.json(): continue
                 settings = s_res.json()
                 
@@ -210,15 +215,13 @@ def start_bg_monitor(user_id):
                 
                 now_tz = datetime.now(timezone(timedelta(hours=9)))
                 
-                # [패치 3] 취침 시간(DND) 엄격 적용: 조건 만족 시 아래 모든 로직 무시 (Skip)
                 if is_sleeping_time(now_tz, settings.get("sleep_start", "22:00"), settings.get("sleep_end", "05:00")):
                     continue
                 
-                # [패치 1] 알람 간격 시간(Hour) 단위 정확한 초(Seconds) 환산
                 interval_h = float(settings.get("pee_interval", 5.0))
                 interval_sec = interval_h * 3600.0 
                 
-                l_res = requests.get(f"{FIREBASE_URL}users/{user_id}/logs.json", timeout=5)
+                l_res = requests.get(f"{FIREBASE_URL}users/{user_id}/logs.json?auth={FIREBASE_SECRET}", timeout=5)
                 if l_res.status_code != 200 or not l_res.json(): continue
                 logs = l_res.json()
                 
@@ -226,7 +229,7 @@ def start_bg_monitor(user_id):
                 for k in sorted(logs.keys(), reverse=True):
                     act = str(logs[k])
                     if "소변" in act and not any(x in act for x in ["차감", "리셋", "끄기", "알림 발송"]):
-                        p_raw_key = k # 중복 방지를 위한 원본 이벤트 키값 할당
+                        p_raw_key = k 
                         if '(수정)' in act and '[' in act and ']' in act:
                             try:
                                 ext_time = act.split('[')[1].split(']')[0]
@@ -236,18 +239,15 @@ def start_bg_monitor(user_id):
                         else: p_ts = k.split('_')[0]
                         break
                 
-                # [패치 2 적용] 발송 기록 아이디가 다를 때만 1회 발송 수행
                 if p_ts and p_raw_key != last_alerted_event_id:
-                    # [버그픽스] timezone-aware(now_tz) vs naive(strptime) 뺄셈 오류 수정
                     parsed_dt = datetime.strptime(p_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=9)))
                     diff_sec = (now_tz - parsed_dt).total_seconds()
 
                     if diff_sec >= interval_sec:
                         h = int(diff_sec // 3600)
                         m = int((diff_sec % 3600) // 60)
-                        # [버그픽스] pet_name은 profile에 저장됨 (settings가 아님)
                         try:
-                            p_res = requests.get(f"{FIREBASE_URL}users/{user_id}/profile.json", timeout=5)
+                            p_res = requests.get(f"{FIREBASE_URL}users/{user_id}/profile.json?auth={FIREBASE_SECRET}", timeout=5)
                             pet_name = p_res.json().get("pet_name", "강아지") if p_res.status_code == 200 and p_res.json() else "강아지"
                         except Exception:
                             pet_name = "강아지"
@@ -256,13 +256,12 @@ def start_bg_monitor(user_id):
                         
                         send_tg_msg(settings["tg_token"], settings["tg_chat_id"], msg)
                         
-                        # 중복 발송 방지 플래그 락(Lock) 체결
                         last_alerted_event_id = p_raw_key 
                         
                         try:
                             alert_ts = now_tz.strftime("%Y-%m-%d %H:%M:%S_%f")
                             alert_act = f"📱 알림 발송 (소변 후 {time_str} 초과)"
-                            requests.patch(f"{FIREBASE_URL}users/{user_id}/logs.json", json={alert_ts: alert_act}, timeout=5)
+                            requests.patch(f"{FIREBASE_URL}users/{user_id}/logs.json?auth={FIREBASE_SECRET}", json={alert_ts: alert_act}, timeout=5)
                         except: pass
 
             except Exception: pass 
@@ -811,7 +810,7 @@ if not target_df.empty:
     last_t   = str(target_df.iloc[-1]['시간'])[11:19]
     if st.button(f"❌ 직전 취소: [{last_t}] {last_act}", use_container_width=True):
         try:
-            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{target_df.iloc[-1]['시간']}.json", timeout=5).raise_for_status()
+            requests.delete(f"{FIREBASE_URL}users/{username}/logs/{target_df.iloc[-1]['시간']}.json?auth={FIREBASE_SECRET}", timeout=5).raise_for_status()
             st.rerun()
         except: st.error("취소 실패")
 
